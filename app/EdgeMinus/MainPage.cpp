@@ -151,6 +151,47 @@ void ApplyProcessUserAgent(std::wstring const& userAgent) {
   }
 }
 
+constexpr uint32_t kMaxFaviconBytes = 2u * 1024u * 1024u;
+
+winrt::Windows::Foundation::IAsyncAction SaveScaledPngAsync(
+    winrt::Windows::Storage::Streams::InMemoryRandomAccessStream source,
+    uint32_t size, winrt::Windows::Storage::StorageFile file) {
+  using namespace winrt::Windows::Graphics::Imaging;
+  using namespace winrt::Windows::Storage;
+
+  source.Seek(0);
+  auto decoder = co_await BitmapDecoder::CreateAsync(source);
+
+  uint32_t bestFrame = 0;
+  uint64_t bestArea = 0;
+  for (uint32_t index = 0; index < decoder.FrameCount(); ++index) {
+    auto frame = co_await decoder.GetFrameAsync(index);
+    const uint64_t area =
+        static_cast<uint64_t>(frame.PixelWidth()) * frame.PixelHeight();
+    if (area > bestArea) {
+      bestArea = area;
+      bestFrame = index;
+    }
+  }
+
+  BitmapTransform transform;
+  transform.ScaledWidth(size);
+  transform.ScaledHeight(size);
+  transform.InterpolationMode(BitmapInterpolationMode::Fant);
+
+  auto frame = co_await decoder.GetFrameAsync(bestFrame);
+  auto bitmap = co_await frame.GetSoftwareBitmapAsync(
+      BitmapPixelFormat::Bgra8, BitmapAlphaMode::Premultiplied, transform,
+      ExifOrientationMode::IgnoreExifOrientation,
+      ColorManagementMode::ColorManageToSRgb);
+
+  auto stream = co_await file.OpenAsync(FileAccessMode::ReadWrite);
+  auto encoder = co_await BitmapEncoder::CreateAsync(
+      BitmapEncoder::PngEncoderId(), stream);
+  encoder.SetSoftwareBitmap(bitmap);
+  co_await encoder.FlushAsync();
+}
+
 std::wstring JsString(std::wstring const& text) {
   std::wstring result = L"\"";
   for (wchar_t ch : text) {
@@ -776,47 +817,153 @@ void MainPage::SaveSettings() {
 }
 
 void MainPage::PinCurrentPage() {
-  const winrt::hstring url = currentUrl_.empty() ? HomeUrl() : currentUrl_;
+  const std::wstring url =
+      currentUrl_.empty() ? std::wstring(HomeUrl()) : std::wstring(currentUrl_);
+  const std::wstring tileId =
+      L"url-" + std::to_wstring(std::hash<std::wstring>{}(url));
+
+  std::wstring display = web_.DocumentTitle().c_str();
+  if (display.empty()) {
+    display = L"EdgeMinus";
+  }
+  if (display.size() > 40) {
+    display.resize(40);
+  }
+
+  PinCurrentPageAsync(tileId, display, L"url|" + url);
+}
+
+winrt::fire_and_forget MainPage::PinCurrentPageAsync(
+    std::wstring tileId, std::wstring display,
+    std::wstring argumentsText) {
+  using namespace winrt::Windows::Data::Json;
+  using namespace winrt::Windows::Graphics::Imaging;
+  using namespace winrt::Windows::Storage;
+  using namespace winrt::Windows::Storage::Streams;
+  using namespace winrt::Windows::UI::StartScreen;
+  using namespace winrt::Windows::Web::Http;
+
+  std::wstring logo150 = L"ms-appx:///Assets/Square150x150Logo.png";
+  std::wstring logo71 = L"ms-appx:///Assets/Square71x71Logo.png";
+  std::wstring logo44 = L"ms-appx:///Assets/Square44x44Logo.png";
+
   try {
-    using winrt::Windows::UI::StartScreen::ForegroundText;
-    using winrt::Windows::UI::StartScreen::SecondaryTile;
-    using winrt::Windows::UI::StartScreen::TileOptions;
+    const std::wstring script = LR"JS(
+      (function () {
+        var best = '';
+        var score = -1;
+        var links = document.querySelectorAll('link[rel]');
+        for (var i = 0; i < links.length; i++) {
+          var el = links[i];
+          var rel = (el.getAttribute('rel') || '').toLowerCase();
+          if (rel.indexOf('icon') < 0 &&
+              rel.indexOf('apple-touch') < 0) {
+            continue;
+          }
+          var href = el.getAttribute('href');
+          if (!href) continue;
+          var value = rel.indexOf('apple-touch') >= 0 ? 1000 : 0;
+          var sizes = (el.getAttribute('sizes') || '').toLowerCase();
+          var match = sizes.match(/(\d+)x(\d+)/);
+          if (match) {
+            value += parseInt(match[1], 10) * parseInt(match[2], 10);
+          }
+          var type = (el.getAttribute('type') || '').toLowerCase();
+          if (type.indexOf('svg') >= 0) value -= 1000;
+          if (value > score) {
+            score = value;
+            best = href;
+          }
+        }
+        if (!best) best = '/favicon.ico';
+        try {
+          return new URL(best, document.baseURI || location.href).href;
+        } catch (e) {
+          return '';
+        }
+      })();
+    )JS";
 
-    const std::wstring tileId =
-        L"url-" + std::to_wstring(std::hash<std::wstring>{}(std::wstring(url)));
-
-    std::wstring display = web_.DocumentTitle().c_str();
-    if (display.empty()) {
-      display = L"EdgeMinus";
+    std::wstring iconUrl;
+    const winrt::hstring result = co_await web_.InvokeScriptAsync(
+        L"eval", {winrt::hstring(script)});
+    if (!result.empty()) {
+      const std::wstring raw(result.c_str());
+      try {
+        iconUrl = std::wstring(JsonValue::Parse(result).GetString().c_str());
+      } catch (...) {
+        iconUrl = raw;
+      }
     }
-    if (display.size() > 40) {
-      display.resize(40);
+
+    if (!iconUrl.empty()) {
+      const winrt::Windows::Foundation::Uri iconUri{
+          winrt::hstring(iconUrl)};
+      const std::wstring scheme(iconUri.SchemeName());
+      if (scheme == L"http" || scheme == L"https") {
+        HttpClient client;
+        HttpRequestMessage request(HttpMethod::Get(), iconUri);
+        request.Headers().TryAppendWithoutValidation(
+            L"Accept", L"image/*,*/*;q=0.8");
+        const auto response = co_await client.SendRequestAsync(request);
+        if (response.IsSuccessStatusCode()) {
+          const auto buffer = co_await response.Content().ReadAsBufferAsync();
+          if (buffer.Length() <= kMaxFaviconBytes) {
+            InMemoryRandomAccessStream memory;
+            co_await memory.WriteAsync(buffer);
+            memory.Seek(0);
+
+            const auto folder = co_await ApplicationData::Current()
+                                    .LocalFolder()
+                                    .CreateFolderAsync(
+                                        L"tiles",
+                                        CreationCollisionOption::OpenIfExists);
+
+            const std::wstring base = L"tiles/" + tileId;
+            const auto file150 = co_await folder.CreateFileAsync(
+                winrt::hstring(base + L"-150.png"),
+                CreationCollisionOption::ReplaceExisting);
+            const auto file71 = co_await folder.CreateFileAsync(
+                winrt::hstring(base + L"-71.png"),
+                CreationCollisionOption::ReplaceExisting);
+            const auto file44 = co_await folder.CreateFileAsync(
+                winrt::hstring(base + L"-44.png"),
+                CreationCollisionOption::ReplaceExisting);
+
+            co_await SaveScaledPngAsync(memory, 150, file150);
+            co_await SaveScaledPngAsync(memory, 71, file71);
+            co_await SaveScaledPngAsync(memory, 44, file44);
+
+            logo150 = L"ms-appdata:///local/" + base + L"-150.png";
+            logo71 = L"ms-appdata:///local/" + base + L"-71.png";
+            logo44 = L"ms-appdata:///local/" + base + L"-44.png";
+          }
+        }
+      }
     }
+  } catch (winrt::hresult_error const& error) {
+    log::Write(L"main: favicon failed " + std::wstring(error.message()));
+  } catch (...) {
+    log::Write(L"main: favicon failed");
+  }
 
-    std::wstring argumentsText = L"url|";
-    argumentsText += std::wstring(url);
-
+  try {
     SecondaryTile tile(
         winrt::hstring(tileId), winrt::hstring(display),
         winrt::hstring(display), winrt::hstring(argumentsText),
-        TileOptions::None,
-        winrt::Windows::Foundation::Uri(
-            L"ms-appx:///Assets/Square150x150Logo.png"));
-    tile.SmallLogo(winrt::Windows::Foundation::Uri(
-        L"ms-appx:///Assets/Square44x44Logo.png"));
+        TileOptions::None, winrt::Windows::Foundation::Uri(
+                                winrt::hstring(logo150)));
+    tile.SmallLogo(winrt::Windows::Foundation::Uri(winrt::hstring(logo44)));
+    tile.VisualElements().Square44x44Logo(
+        winrt::Windows::Foundation::Uri(winrt::hstring(logo44)));
+    tile.VisualElements().Square71x71Logo(
+        winrt::Windows::Foundation::Uri(winrt::hstring(logo71)));
     tile.BackgroundColor(ChromeBg());
     tile.ForegroundText(ForegroundText::Light);
-    tile.RequestCreateAsync().Completed(
-        [](winrt::Windows::Foundation::IAsyncOperation<bool> const& operation,
-           winrt::Windows::Foundation::AsyncStatus status) {
-          try {
-            if (status == winrt::Windows::Foundation::AsyncStatus::Completed &&
-                operation.GetResults()) {
-              log::Write(L"main: pinned current page");
-            }
-          } catch (...) {
-          }
-        });
+    const bool created = co_await tile.RequestCreateAsync();
+    if (created) {
+      log::Write(L"main: pinned current page");
+    }
   } catch (winrt::hresult_error const& error) {
     log::Write(L"main: pin failed " + std::wstring(error.message()));
     ShowError(L"Could not pin", L"This page could not be pinned to Start.");

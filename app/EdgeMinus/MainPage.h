@@ -28,6 +28,9 @@ class MainPage {
   void HideSettings();
   void SaveSettings();
   void PinCurrentPage();
+  winrt::fire_and_forget PinCurrentPageAsync(std::wstring tileId,
+                                             std::wstring display,
+                                             std::wstring argumentsText);
   bool HandleBack();
   void LaunchExternal(winrt::Windows::Foundation::Uri const& uri);
 

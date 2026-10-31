@@ -102,16 +102,15 @@ void MainPage::BuildUi() {
   progress_.Visibility(Visibility::Collapsed);
 
   auto buttons = Grid();
-  for (int i = 0; i < 6; ++i) {
+  for (int i = 0; i < 5; ++i) {
     ColumnDefinition column;
-    column.Width(i == 4 ? GridLengthHelper::FromValueAndType(1, GridUnitType::Star)
+    column.Width(i == 3 ? GridLengthHelper::FromValueAndType(1, GridUnitType::Star)
                         : GridLengthHelper::Auto());
     buttons.ColumnDefinitions().Append(column);
   }
 
   backButton_ = MakeGlyphButton(L"\uE72B");
   forwardButton_ = MakeGlyphButton(L"\uE72A");
-  homeButton_ = MakeGlyphButton(L"\uE80F");
   reloadButton_ = MakeGlyphButton(L"\uE72C");
   goButton_ = MakeGlyphButton(L"\uE721");
 
@@ -135,14 +134,12 @@ void MainPage::BuildUi() {
 
   Grid::SetColumn(backButton_, 0);
   Grid::SetColumn(forwardButton_, 1);
-  Grid::SetColumn(homeButton_, 2);
-  Grid::SetColumn(reloadButton_, 3);
-  Grid::SetColumn(addressBar_, 4);
-  Grid::SetColumn(goButton_, 5);
+  Grid::SetColumn(reloadButton_, 2);
+  Grid::SetColumn(addressBar_, 3);
+  Grid::SetColumn(goButton_, 4);
 
   buttons.Children().Append(backButton_);
   buttons.Children().Append(forwardButton_);
-  buttons.Children().Append(homeButton_);
   buttons.Children().Append(reloadButton_);
   buttons.Children().Append(addressBar_);
   buttons.Children().Append(goButton_);
@@ -232,10 +229,6 @@ void MainPage::WireEvents() {
     if (web_.CanGoForward()) {
       web_.GoForward();
     }
-  });
-
-  homeButton_.Click([this](IInspectable const&, RoutedEventArgs const&) {
-    NavigateTo(HomeUrl());
   });
 
   reloadButton_.Click([this](IInspectable const&, RoutedEventArgs const&) {

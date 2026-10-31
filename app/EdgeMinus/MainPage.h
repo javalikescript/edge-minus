@@ -39,7 +39,6 @@ class MainPage {
   winrt::Windows::UI::Xaml::Controls::TextBox addressBar_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Button backButton_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Button forwardButton_{nullptr};
-  winrt::Windows::UI::Xaml::Controls::Button homeButton_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Button reloadButton_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Button goButton_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Button retryButton_{nullptr};

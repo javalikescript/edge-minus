@@ -8,8 +8,8 @@ package.
 ## Features
 
 - Address bar with Enter-to-navigate and automatic `https://` prefixing.
-- Back, forward, home, reload and go buttons.
-- Bing search fallback for text that is not a URL.
+- Back, forward, reload, go and settings buttons.
+- Search fallback for text that is not a URL.
 - Page loading progress bar and a readable navigation error page with retry.
 - Hardware and system back handling via `SystemNavigationManager`.
 - Registration as an `http` and `https` handler, so the phone can offer
@@ -137,11 +137,9 @@ build.bat                        cmd.exe wrapper for build.ps1
 
 - EdgeMinus uses EdgeHTML through `WebView`; it is not Chromium and does not
   receive modern Chromium engine updates.
-- There are no tabs, downloads, private mode, bookmarks or settings yet.
+- There are no tabs, downloads, private mode or bookmarks yet.
 - The `WebView` renders in its own surface. The error page therefore hides the
   `WebView` instead of drawing an overlay above it.
-- The tile and splash images are placeholder assets copied from the Gecko
-  reference project and can be replaced without code changes.
 - Package identity is `EdgeMinus.Browser` with publisher `CN=EdgeMinus`. Change
   both the manifest and certificate together if you publish under another
   identity.

@@ -1,0 +1,100 @@
+name: Build and Release EdgeMinus (.appx)
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ARM package
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show build environment
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe not found" }
+          & $vswhere -latest -products * -format json | ConvertFrom-Json |
+            Select-Object installationPath, catalog_productDisplayVersion
+          Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -Directory -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty Name
+
+      - name: Build and package ARM appx
+        shell: cmd
+        run: build.bat -Configuration Release -Platform ARM
+
+      - name: Ensure signing certificate is exported
+        shell: pwsh
+        run: |
+          $cer = "output\EdgeMinus.cer"
+          if (Test-Path $cer) { return }
+          $pfx = "app\EdgeMinus\EdgeMinus_TemporaryKey.pfx"
+          if (-not (Test-Path $pfx)) { throw "Signing certificate was not created." }
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfx, "edgeminus")
+          Export-Certificate -Cert $cert -FilePath $cer | Out-Null
+
+      - name: Show produced packages
+        shell: pwsh
+        run: |
+          $packages = Get-ChildItem "output\appx" -Recurse -File -Include *.appx,*.appxbundle
+          if (-not $packages) { throw "No package was produced." }
+          $packages | ForEach-Object { Write-Host ("{0} ({1} bytes)" -f $_.FullName, $_.Length) }
+          Get-FileHash "output\appx\EdgeMinus_*_ARM.appx" -Algorithm SHA256 |
+            Format-Table Algorithm, Hash, Path -AutoSize
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: EdgeMinus-ARM-appx
+          path: |
+            output/appx/**/*.appx
+            output/EdgeMinus.cer
+            output/build.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: EdgeMinus ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            output/appx/EdgeMinus_*_ARM.appx
+            output/appx/**/Dependencies/ARM/*.appx
+            output/EdgeMinus.cer
+            output/build.log
+
+      - name: Diagnostics on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          Write-Host "--- vswhere ---"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) { & $vswhere -all -products * -format json }
+          Write-Host "--- MSVC toolsets ---"
+          Get-ChildItem "C:\Program Files*\Microsoft Visual Studio\2022\*\VC\Tools\MSVC" -Directory -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty FullName
+          Write-Host "--- SDKs ---"
+          Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -Directory -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty Name
+          Write-Host "--- output ---"
+          Get-ChildItem "output" -Recurse -File -ErrorAction SilentlyContinue |
+            Select-Object FullName, Length

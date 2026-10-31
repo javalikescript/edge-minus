@@ -11,6 +11,19 @@ using namespace winrt::Windows::UI::Xaml;
 
 namespace edgeminus {
 
+namespace {
+
+std::wstring PinnedUrlFromArguments(winrt::hstring const& arguments) {
+  const std::wstring value(arguments.c_str());
+  const std::wstring prefix = L"url|";
+  if (value.rfind(prefix, 0) == 0) {
+    return value.substr(prefix.size());
+  }
+  return {};
+}
+
+}  // namespace
+
 struct App
     : ApplicationT<App, winrt::Windows::UI::Xaml::Markup::IXamlMetadataProvider> {
   std::shared_ptr<MainPage> page_;
@@ -49,9 +62,10 @@ struct App
     log::Write(L"app: ready");
   }
 
-  void OnLaunched(LaunchActivatedEventArgs const&) {
+  void OnLaunched(LaunchActivatedEventArgs const& args) {
     log::Write(L"app: launched");
-    EnsureContent();
+    const std::wstring pinned = PinnedUrlFromArguments(args.Arguments());
+    EnsureContent(winrt::hstring(pinned));
     Window::Current().Activate();
   }
 
@@ -64,24 +78,29 @@ struct App
         if (auto uri = protocol.Uri()) {
           url = uri.AbsoluteUri();
         }
+      } else if (kind == ActivationKind::Launch) {
+        auto launch = args.as<LaunchActivatedEventArgs>();
+        url = PinnedUrlFromArguments(launch.Arguments());
       }
     } catch (winrt::hresult_error const& error) {
       log::Write(L"app: activation failed " + std::wstring(error.message()));
     }
 
-    EnsureContent();
-    if (!url.empty() && page_) {
-      page_->OpenExternalUrl(winrt::hstring(url));
-    }
+    EnsureContent(winrt::hstring(url));
     Window::Current().Activate();
   }
 
-  void EnsureContent() {
+  void EnsureContent(winrt::hstring const& initialUrl = {}) {
+    bool created = false;
     if (!page_) {
-      page_ = std::make_shared<MainPage>();
+      page_ = std::make_shared<MainPage>(initialUrl);
+      created = true;
     }
     if (!Window::Current().Content()) {
       Window::Current().Content(page_->Root());
+    }
+    if (!created && !initialUrl.empty() && page_) {
+      page_->OpenExternalUrl(initialUrl);
     }
   }
 

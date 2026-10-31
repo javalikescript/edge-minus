@@ -6,7 +6,7 @@ namespace edgeminus {
 
 class MainPage {
  public:
-  MainPage();
+  explicit MainPage(winrt::hstring const& initialUrl = {});
 
   winrt::Windows::UI::Xaml::UIElement Root() const { return root_; }
   void OpenExternalUrl(winrt::hstring const& url);
@@ -14,6 +14,7 @@ class MainPage {
 
  private:
   void BuildUi();
+  void BuildSettingsPanel();
   void WireEvents();
   void WireSystemBack();
   void ApplySystemChrome();
@@ -23,10 +24,15 @@ class MainPage {
   void UpdateChrome();
   void ShowError(winrt::hstring const& title, winrt::hstring const& detail);
   void HideError();
+  void ShowSettings();
+  void HideSettings();
+  void SaveSettings();
+  void PinCurrentPage();
   bool HandleBack();
   void LaunchExternal(winrt::Windows::Foundation::Uri const& uri);
 
   winrt::hstring ResolveInput(winrt::hstring const& input) const;
+  winrt::hstring UserAgent() const;
 
   static winrt::hstring HomeUrl();
   static bool IsInternalScheme(winrt::hstring const& scheme);
@@ -41,12 +47,16 @@ class MainPage {
   winrt::Windows::UI::Xaml::Controls::Button forwardButton_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Button reloadButton_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Button goButton_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::Button menuButton_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Button retryButton_{nullptr};
   winrt::Windows::UI::Xaml::Controls::ProgressBar progress_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Border errorPanel_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBlock errorTitle_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBlock errorText_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBlock statusText_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::Border settingsPanel_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::TextBox searchBox_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::TextBox userAgentBox_{nullptr};
 
   winrt::hstring currentUrl_;
 };

@@ -67,16 +67,50 @@ bool StartsWith(std::wstring const& text, std::wstring_view prefix) {
          _wcsnicmp(text.c_str(), prefix.data(), prefix.size()) == 0;
 }
 
+constexpr wchar_t kSearchUrlKey[] = L"searchUrl";
+constexpr wchar_t kUserAgentKey[] = L"userAgent";
+constexpr wchar_t kDefaultSearchUrl[] =
+    L"https://www.bing.com/search?q={query}";
+
+std::wstring LoadSetting(std::wstring_view key) {
+  try {
+    auto values = winrt::Windows::Storage::ApplicationData::Current()
+                      .LocalSettings()
+                      .Values();
+    auto value = values.TryLookup(winrt::hstring(key));
+    if (value) {
+      return std::wstring(winrt::unbox_value<winrt::hstring>(value).c_str());
+    }
+  } catch (...) {
+  }
+  return {};
+}
+
+void StoreSetting(std::wstring_view key, std::wstring const& value) {
+  try {
+    auto values = winrt::Windows::Storage::ApplicationData::Current()
+                      .LocalSettings()
+                      .Values();
+    if (value.empty()) {
+      values.Remove(winrt::hstring(key));
+    } else {
+      values.Insert(winrt::hstring(key),
+                    winrt::box_value(winrt::hstring(value)));
+    }
+  } catch (...) {
+  }
+}
+
 }  // namespace
 
-MainPage::MainPage() {
+MainPage::MainPage(winrt::hstring const& initialUrl) {
   log::Write(L"main: building UI");
   BuildUi();
   WireEvents();
   WireSystemBack();
   ApplySystemChrome();
-  log::Write(L"main: opening home page");
-  NavigateTo(HomeUrl());
+  log::Write(L"main: opening start page");
+  NavigateTo(initialUrl.empty() ? HomeUrl() : initialUrl);
 }
 
 void MainPage::BuildUi() {
@@ -102,7 +136,7 @@ void MainPage::BuildUi() {
   progress_.Visibility(Visibility::Collapsed);
 
   auto buttons = Grid();
-  for (int i = 0; i < 5; ++i) {
+  for (int i = 0; i < 6; ++i) {
     ColumnDefinition column;
     column.Width(i == 3 ? GridLengthHelper::FromValueAndType(1, GridUnitType::Star)
                         : GridLengthHelper::Auto());
@@ -113,6 +147,7 @@ void MainPage::BuildUi() {
   forwardButton_ = MakeGlyphButton(L"\uE72A");
   reloadButton_ = MakeGlyphButton(L"\uE72C");
   goButton_ = MakeGlyphButton(L"\uE721");
+  menuButton_ = MakeGlyphButton(L"\uE712");
 
   addressBar_ = TextBox();
   addressBar_.PlaceholderText(L"Search or enter address");
@@ -137,12 +172,14 @@ void MainPage::BuildUi() {
   Grid::SetColumn(reloadButton_, 2);
   Grid::SetColumn(addressBar_, 3);
   Grid::SetColumn(goButton_, 4);
+  Grid::SetColumn(menuButton_, 5);
 
   buttons.Children().Append(backButton_);
   buttons.Children().Append(forwardButton_);
   buttons.Children().Append(reloadButton_);
   buttons.Children().Append(addressBar_);
   buttons.Children().Append(goButton_);
+  buttons.Children().Append(menuButton_);
 
   auto chrome = StackPanel();
   chrome.Background(Brush(ChromeBg()));
@@ -199,6 +236,8 @@ void MainPage::BuildUi() {
   errorPanel_.Child(errorStack);
   contentHost_.Children().Append(errorPanel_);
 
+  BuildSettingsPanel();
+
   Grid::SetRow(contentHost_, 1);
   root_.Children().Append(contentHost_);
 
@@ -214,10 +253,127 @@ void MainPage::BuildUi() {
   UpdateChrome();
 }
 
+void MainPage::BuildSettingsPanel() {
+  settingsPanel_ = Border();
+  settingsPanel_.Background(Brush(ErrorBg()));
+  settingsPanel_.Visibility(Visibility::Collapsed);
+
+  auto stack = StackPanel();
+  stack.HorizontalAlignment(HorizontalAlignment::Center);
+  stack.VerticalAlignment(VerticalAlignment::Center);
+  stack.MaxWidth(440);
+  stack.Margin(ThicknessHelper::FromLengths(20, 20, 20, 20));
+
+  auto title = TextBlock();
+  title.Text(L"Settings");
+  title.FontSize(24);
+  title.FontWeight(FontWeights::Bold());
+  title.Foreground(Brush(ChromeFg()));
+  title.Margin(ThicknessHelper::FromLengths(0, 0, 0, 16));
+  stack.Children().Append(title);
+
+  auto searchLabel = TextBlock();
+  searchLabel.Text(L"Search URL");
+  searchLabel.FontSize(14);
+  searchLabel.Foreground(Brush(ChromeFg()));
+  searchLabel.Margin(ThicknessHelper::FromLengths(0, 0, 0, 4));
+  stack.Children().Append(searchLabel);
+
+  searchBox_ = TextBox();
+  searchBox_.FontSize(14);
+  searchBox_.Padding(ThicknessHelper::FromLengths(8, 6, 8, 6));
+  searchBox_.Background(Brush(ButtonBg()));
+  searchBox_.Foreground(Brush(ChromeFg()));
+  searchBox_.BorderBrush(Brush(Accent()));
+  searchBox_.BorderThickness(ThicknessHelper::FromUniformLength(1));
+  stack.Children().Append(searchBox_);
+
+  auto searchHint = TextBlock();
+  searchHint.Text(
+      L"Used for text that is not a URL. {query} is replaced with the terms.");
+  searchHint.FontSize(11);
+  searchHint.Foreground(Brush(MutedFg()));
+  searchHint.TextWrapping(TextWrapping::Wrap);
+  searchHint.Margin(ThicknessHelper::FromLengths(0, 4, 0, 16));
+  stack.Children().Append(searchHint);
+
+  auto uaLabel = TextBlock();
+  uaLabel.Text(L"User agent");
+  uaLabel.FontSize(14);
+  uaLabel.Foreground(Brush(ChromeFg()));
+  uaLabel.Margin(ThicknessHelper::FromLengths(0, 0, 0, 4));
+  stack.Children().Append(uaLabel);
+
+  userAgentBox_ = TextBox();
+  userAgentBox_.FontSize(14);
+  userAgentBox_.PlaceholderText(L"Default");
+  userAgentBox_.Padding(ThicknessHelper::FromLengths(8, 6, 8, 6));
+  userAgentBox_.Background(Brush(ButtonBg()));
+  userAgentBox_.Foreground(Brush(ChromeFg()));
+  userAgentBox_.BorderBrush(Brush(Accent()));
+  userAgentBox_.BorderThickness(ThicknessHelper::FromUniformLength(1));
+  stack.Children().Append(userAgentBox_);
+
+  auto uaHint = TextBlock();
+  uaHint.Text(L"Leave empty to use the system user agent.");
+  uaHint.FontSize(11);
+  uaHint.Foreground(Brush(MutedFg()));
+  uaHint.TextWrapping(TextWrapping::Wrap);
+  uaHint.Margin(ThicknessHelper::FromLengths(0, 4, 0, 20));
+  stack.Children().Append(uaHint);
+
+  auto actions = StackPanel();
+  actions.Orientation(Orientation::Horizontal);
+  actions.HorizontalAlignment(HorizontalAlignment::Right);
+
+  auto cancelButton = Button();
+  cancelButton.Content(winrt::box_value(winrt::hstring(L"Cancel")));
+  cancelButton.Background(Brush(ButtonBg()));
+  cancelButton.Foreground(Brush(ChromeFg()));
+  cancelButton.BorderThickness(ThicknessHelper::FromUniformLength(0));
+  cancelButton.Padding(ThicknessHelper::FromLengths(18, 8, 18, 8));
+  cancelButton.Margin(ThicknessHelper::FromLengths(0, 0, 8, 0));
+  cancelButton.Click([this](IInspectable const&, RoutedEventArgs const&) {
+    HideSettings();
+  });
+  actions.Children().Append(cancelButton);
+
+  auto saveButton = Button();
+  saveButton.Content(winrt::box_value(winrt::hstring(L"Save")));
+  saveButton.Background(Brush(Accent()));
+  saveButton.Foreground(Brush(ChromeFg()));
+  saveButton.BorderThickness(ThicknessHelper::FromUniformLength(0));
+  saveButton.Padding(ThicknessHelper::FromLengths(18, 8, 18, 8));
+  saveButton.Click([this](IInspectable const&, RoutedEventArgs const&) {
+    SaveSettings();
+  });
+  actions.Children().Append(saveButton);
+
+  stack.Children().Append(actions);
+  settingsPanel_.Child(stack);
+  contentHost_.Children().Append(settingsPanel_);
+}
+
 void MainPage::WireEvents() {
   goButton_.Click([this](IInspectable const&, RoutedEventArgs const&) {
     LoadFromAddressBar();
   });
+
+  auto menu = MenuFlyout();
+  auto settingsItem = MenuFlyoutItem();
+  settingsItem.Text(L"Settings");
+  settingsItem.Click([this](IInspectable const&, RoutedEventArgs const&) {
+    ShowSettings();
+  });
+  menu.Items().Append(settingsItem);
+
+  auto pinItem = MenuFlyoutItem();
+  pinItem.Text(L"Pin to start screen");
+  pinItem.Click([this](IInspectable const&, RoutedEventArgs const&) {
+    PinCurrentPage();
+  });
+  menu.Items().Append(pinItem);
+  menuButton_.Flyout(menu);
 
   backButton_.Click([this](IInspectable const&, RoutedEventArgs const&) {
     if (web_.CanGoBack()) {
@@ -401,7 +557,17 @@ void MainPage::NavigateTo(winrt::hstring const& input) {
     addressBar_.Text(currentUrl_);
     HideError();
     log::Write(L"main: navigate " + std::wstring(currentUrl_));
-    web_.Navigate(uri);
+
+    const winrt::hstring userAgent = UserAgent();
+    const winrt::hstring scheme = uri.SchemeName();
+    if (!userAgent.empty() && (scheme == L"http" || scheme == L"https")) {
+      winrt::Windows::Web::Http::HttpRequestMessage request(
+          winrt::Windows::Web::Http::HttpMethod::Get(), uri);
+      request.Headers().TryAppendWithoutValidation(L"User-Agent", userAgent);
+      web_.NavigateWithHttpRequestMessage(request);
+    } else {
+      web_.Navigate(uri);
+    }
   } catch (winrt::hresult_error const& error) {
     log::Write(L"main: bad address " + std::wstring(error.message()));
     ShowError(L"Invalid address",
@@ -446,7 +612,91 @@ void MainPage::HideError() {
   web_.Visibility(Visibility::Visible);
 }
 
+void MainPage::ShowSettings() {
+  std::wstring search = LoadSetting(kSearchUrlKey);
+  if (search.empty()) {
+    search = kDefaultSearchUrl;
+  }
+  searchBox_.Text(winrt::hstring(search));
+  userAgentBox_.Text(winrt::hstring(LoadSetting(kUserAgentKey)));
+  web_.Visibility(Visibility::Collapsed);
+  settingsPanel_.Visibility(Visibility::Visible);
+}
+
+void MainPage::HideSettings() {
+  settingsPanel_.Visibility(Visibility::Collapsed);
+  if (errorPanel_.Visibility() != Visibility::Visible) {
+    web_.Visibility(Visibility::Visible);
+  }
+}
+
+void MainPage::SaveSettings() {
+  const std::wstring search = Trim(std::wstring(searchBox_.Text()));
+  const std::wstring userAgent = Trim(std::wstring(userAgentBox_.Text()));
+  const bool defaultSearch = search.empty() || search == kDefaultSearchUrl;
+  StoreSetting(kSearchUrlKey, defaultSearch ? std::wstring() : search);
+  StoreSetting(kUserAgentKey, userAgent);
+  log::Write(L"main: settings saved");
+  HideSettings();
+}
+
+void MainPage::PinCurrentPage() {
+  const winrt::hstring url = currentUrl_.empty() ? HomeUrl() : currentUrl_;
+  try {
+    using winrt::Windows::UI::StartScreen::ForegroundText;
+    using winrt::Windows::UI::StartScreen::SecondaryTile;
+    using winrt::Windows::UI::StartScreen::TileOptions;
+
+    const std::wstring tileId =
+        L"url-" + std::to_wstring(std::hash<std::wstring>{}(std::wstring(url)));
+
+    std::wstring display = web_.DocumentTitle().c_str();
+    if (display.empty()) {
+      display = L"EdgeMinus";
+    }
+    if (display.size() > 40) {
+      display.resize(40);
+    }
+
+    std::wstring argumentsText = L"url|";
+    argumentsText += std::wstring(url);
+
+    SecondaryTile tile(
+        winrt::hstring(tileId), winrt::hstring(display),
+        winrt::hstring(display), winrt::hstring(argumentsText),
+        TileOptions::None,
+        winrt::Windows::Foundation::Uri(
+            L"ms-appx:///Assets/Square150x150Logo.png"));
+    tile.SmallLogo(winrt::Windows::Foundation::Uri(
+        L"ms-appx:///Assets/Square44x44Logo.png"));
+    tile.BackgroundColor(ChromeBg());
+    tile.ForegroundText(ForegroundText::Light);
+    tile.RequestCreateAsync().Completed(
+        [](winrt::Windows::Foundation::IAsyncOperation<bool> const& operation,
+           winrt::Windows::Foundation::AsyncStatus status) {
+          try {
+            if (status == winrt::Windows::Foundation::AsyncStatus::Completed &&
+                operation.GetResults()) {
+              log::Write(L"main: pinned current page");
+            }
+          } catch (...) {
+          }
+        });
+  } catch (winrt::hresult_error const& error) {
+    log::Write(L"main: pin failed " + std::wstring(error.message()));
+    ShowError(L"Could not pin", L"This page could not be pinned to Start.");
+  }
+}
+
+winrt::hstring MainPage::UserAgent() const {
+  return winrt::hstring(LoadSetting(kUserAgentKey));
+}
+
 bool MainPage::HandleBack() {
+  if (settingsPanel_.Visibility() == Visibility::Visible) {
+    HideSettings();
+    return true;
+  }
   if (errorPanel_.Visibility() == Visibility::Visible) {
     HideError();
     if (web_.CanGoBack()) {
@@ -516,8 +766,17 @@ winrt::hstring MainPage::ResolveInput(winrt::hstring const& input) const {
   }
 
   const winrt::hstring escaped = Uri::EscapeComponent(winrt::hstring(text));
-  std::wstring search = L"https://www.bing.com/search?q=";
-  search += escaped.c_str();
+  std::wstring search = LoadSetting(kSearchUrlKey);
+  if (search.empty()) {
+    search = kDefaultSearchUrl;
+  }
+  const std::wstring token = L"{query}";
+  const size_t placeholder = search.find(token);
+  if (placeholder != std::wstring::npos) {
+    search.replace(placeholder, token.size(), escaped.c_str());
+  } else {
+    search += escaped.c_str();
+  }
   return winrt::hstring(search);
 }
 

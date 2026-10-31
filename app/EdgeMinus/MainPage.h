@@ -33,6 +33,7 @@ class MainPage {
 
   winrt::hstring ResolveInput(winrt::hstring const& input) const;
   winrt::hstring UserAgent() const;
+  void ApplyUserAgentScript();
 
   static winrt::hstring HomeUrl();
   static bool IsInternalScheme(winrt::hstring const& scheme);

@@ -103,10 +103,93 @@ void StoreSetting(std::wstring_view key, std::wstring const& value) {
   }
 }
 
+constexpr DWORD kUrlMonOptionUserAgent = 0x10000001;
+constexpr DWORD kUrlMonOptionUserAgentRefresh = 0x10000002;
+
+std::string NarrowString(std::wstring const& text) {
+  if (text.empty()) {
+    return {};
+  }
+  const int size = WideCharToMultiByte(CP_UTF8, 0, text.data(),
+                                       static_cast<int>(text.size()), nullptr,
+                                       0, nullptr, nullptr);
+  std::string result(static_cast<size_t>(size), '\0');
+  WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+                      result.data(), size, nullptr, nullptr);
+  return result;
+}
+
+void ApplyProcessUserAgent(std::wstring const& userAgent) {
+  using SetSessionOption = HRESULT(WINAPI*)(DWORD, LPVOID, DWORD, DWORD);
+  static SetSessionOption setSessionOption = [] {
+    HMODULE urlmon = LoadLibraryW(L"urlmon.dll");
+    if (!urlmon) {
+      return static_cast<SetSessionOption>(nullptr);
+    }
+    return reinterpret_cast<SetSessionOption>(
+        GetProcAddress(urlmon, "UrlMkSetSessionOption"));
+  }();
+  if (!setSessionOption) {
+    log::Write(L"main: UrlMkSetSessionOption is unavailable");
+    return;
+  }
+
+  setSessionOption(kUrlMonOptionUserAgentRefresh, nullptr, 0, 0);
+  if (userAgent.empty()) {
+    return;
+  }
+
+  const std::string narrow = NarrowString(userAgent);
+  const HRESULT result =
+      setSessionOption(kUrlMonOptionUserAgent,
+                       const_cast<char*>(narrow.data()),
+                       static_cast<DWORD>(narrow.size()), 0);
+  if (FAILED(result)) {
+    log::Write(L"main: user agent was rejected");
+  } else {
+    log::Write(L"main: user agent applied");
+  }
+}
+
+std::wstring JsString(std::wstring const& text) {
+  std::wstring result = L"\"";
+  for (wchar_t ch : text) {
+    switch (ch) {
+      case L'\\':
+        result += L"\\\\";
+        break;
+      case L'"':
+        result += L"\\\"";
+        break;
+      case L'\n':
+        result += L"\\n";
+        break;
+      case L'\r':
+        result += L"\\r";
+        break;
+      case L'\t':
+        result += L"\\t";
+        break;
+      default:
+        if (ch < 0x20) {
+          wchar_t escaped[8];
+          swprintf_s(escaped, L"\\u%04x", static_cast<unsigned>(ch));
+          result += escaped;
+        } else {
+          result += ch;
+        }
+        break;
+    }
+  }
+  result += L'"';
+  return result;
+}
+
 }  // namespace
 
 MainPage::MainPage(winrt::hstring const& initialUrl) {
   log::Write(L"main: building UI");
+  ApplyProcessUserAgent(LoadSetting(kUserAgentKey));
   BuildUi();
   WireEvents();
   WireSystemBack();
@@ -475,6 +558,7 @@ void MainPage::WireEvents() {
 
         if (args.IsSuccess()) {
           HideError();
+          ApplyUserAgentScript();
           const winrt::hstring title = web_.DocumentTitle();
           statusText_.Text(title.empty() ? winrt::hstring(L"Ready") : title);
           statusText_.Visibility(Visibility::Visible);
@@ -485,6 +569,16 @@ void MainPage::WireEvents() {
           statusText_.Visibility(Visibility::Visible);
         }
         UpdateChrome();
+      });
+
+  web_.ContentLoading(
+      [this](WebView const&, WebViewContentLoadingEventArgs const&) {
+        ApplyUserAgentScript();
+      });
+
+  web_.DOMContentLoaded(
+      [this](WebView const&, WebViewDOMContentLoadedEventArgs const&) {
+        ApplyUserAgentScript();
       });
 
   if (ApiInformation::IsEventPresent(L"Windows.UI.Xaml.Controls.WebView",
@@ -664,6 +758,7 @@ void MainPage::HideSettings() {
 }
 
 void MainPage::SaveSettings() {
+  const std::wstring previousUserAgent = std::wstring(UserAgent());
   const std::wstring search = Trim(std::wstring(searchBox_.Text()));
   const std::wstring home = Trim(std::wstring(homeBox_.Text()));
   const std::wstring userAgent = Trim(std::wstring(userAgentBox_.Text()));
@@ -672,8 +767,12 @@ void MainPage::SaveSettings() {
   StoreSetting(kSearchUrlKey, defaultSearch ? std::wstring() : search);
   StoreSetting(kHomeUrlKey, defaultHome ? std::wstring() : home);
   StoreSetting(kUserAgentKey, userAgent);
+  ApplyProcessUserAgent(userAgent);
   log::Write(L"main: settings saved");
   HideSettings();
+  if (userAgent != previousUserAgent && !currentUrl_.empty()) {
+    NavigateTo(currentUrl_);
+  }
 }
 
 void MainPage::PinCurrentPage() {
@@ -726,6 +825,29 @@ void MainPage::PinCurrentPage() {
 
 winrt::hstring MainPage::UserAgent() const {
   return winrt::hstring(LoadSetting(kUserAgentKey));
+}
+
+void MainPage::ApplyUserAgentScript() {
+  const std::wstring userAgent = std::wstring(UserAgent());
+  if (userAgent.empty()) {
+    return;
+  }
+
+  const std::wstring script =
+      L"(function(){var u=" + JsString(userAgent) +
+      L";var n=window.navigator;var p=Object.getPrototypeOf(n);"
+      L"try{Object.defineProperty(n,'userAgent',{get:function(){return "
+      L"u;},configurable:true});}catch(e){}"
+      L"try{Object.defineProperty(p,'userAgent',{get:function(){return "
+      L"u;},configurable:true});}catch(e){}"
+      L"try{Object.defineProperty(n,'appVersion',{get:function(){return "
+      L"u.replace(/^Mozilla\\//,'');},configurable:true});}catch(e){}"
+      L"})();";
+
+  try {
+    web_.InvokeScriptAsync(L"eval", {winrt::hstring(script)});
+  } catch (...) {
+  }
 }
 
 bool MainPage::HandleBack() {

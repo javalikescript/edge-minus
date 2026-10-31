@@ -69,8 +69,10 @@ bool StartsWith(std::wstring const& text, std::wstring_view prefix) {
 
 constexpr wchar_t kSearchUrlKey[] = L"searchUrl";
 constexpr wchar_t kUserAgentKey[] = L"userAgent";
+constexpr wchar_t kHomeUrlKey[] = L"homeUrl";
 constexpr wchar_t kDefaultSearchUrl[] =
     L"https://www.bing.com/search?q={query}";
+constexpr wchar_t kDefaultHomeUrl[] = L"about:blank";
 
 std::wstring LoadSetting(std::wstring_view key) {
   try {
@@ -296,6 +298,32 @@ void MainPage::BuildSettingsPanel() {
   searchHint.TextWrapping(TextWrapping::Wrap);
   searchHint.Margin(ThicknessHelper::FromLengths(0, 4, 0, 16));
   stack.Children().Append(searchHint);
+
+  auto homeLabel = TextBlock();
+  homeLabel.Text(L"Home page");
+  homeLabel.FontSize(14);
+  homeLabel.Foreground(Brush(ChromeFg()));
+  homeLabel.Margin(ThicknessHelper::FromLengths(0, 0, 0, 4));
+  stack.Children().Append(homeLabel);
+
+  homeBox_ = TextBox();
+  homeBox_.FontSize(14);
+  homeBox_.PlaceholderText(L"about:blank");
+  homeBox_.Padding(ThicknessHelper::FromLengths(8, 6, 8, 6));
+  homeBox_.Background(Brush(ButtonBg()));
+  homeBox_.Foreground(Brush(ChromeFg()));
+  homeBox_.BorderBrush(Brush(Accent()));
+  homeBox_.BorderThickness(ThicknessHelper::FromUniformLength(1));
+  stack.Children().Append(homeBox_);
+
+  auto homeHint = TextBlock();
+  homeHint.Text(
+      L"Opened by the home button and on startup. Defaults to about:blank.");
+  homeHint.FontSize(11);
+  homeHint.Foreground(Brush(MutedFg()));
+  homeHint.TextWrapping(TextWrapping::Wrap);
+  homeHint.Margin(ThicknessHelper::FromLengths(0, 4, 0, 16));
+  stack.Children().Append(homeHint);
 
   auto uaLabel = TextBlock();
   uaLabel.Text(L"User agent");
@@ -618,6 +646,11 @@ void MainPage::ShowSettings() {
     search = kDefaultSearchUrl;
   }
   searchBox_.Text(winrt::hstring(search));
+  std::wstring home = LoadSetting(kHomeUrlKey);
+  if (home.empty()) {
+    home = kDefaultHomeUrl;
+  }
+  homeBox_.Text(winrt::hstring(home));
   userAgentBox_.Text(winrt::hstring(LoadSetting(kUserAgentKey)));
   web_.Visibility(Visibility::Collapsed);
   settingsPanel_.Visibility(Visibility::Visible);
@@ -632,9 +665,12 @@ void MainPage::HideSettings() {
 
 void MainPage::SaveSettings() {
   const std::wstring search = Trim(std::wstring(searchBox_.Text()));
+  const std::wstring home = Trim(std::wstring(homeBox_.Text()));
   const std::wstring userAgent = Trim(std::wstring(userAgentBox_.Text()));
   const bool defaultSearch = search.empty() || search == kDefaultSearchUrl;
+  const bool defaultHome = home.empty() || home == kDefaultHomeUrl;
   StoreSetting(kSearchUrlKey, defaultSearch ? std::wstring() : search);
+  StoreSetting(kHomeUrlKey, defaultHome ? std::wstring() : home);
   StoreSetting(kUserAgentKey, userAgent);
   log::Write(L"main: settings saved");
   HideSettings();
@@ -781,7 +817,8 @@ winrt::hstring MainPage::ResolveInput(winrt::hstring const& input) const {
 }
 
 winrt::hstring MainPage::HomeUrl() {
-  return L"https://www.bing.com/";
+  const std::wstring home = LoadSetting(kHomeUrlKey);
+  return winrt::hstring(home.empty() ? kDefaultHomeUrl : home);
 }
 
 bool MainPage::IsInternalScheme(winrt::hstring const& scheme) {

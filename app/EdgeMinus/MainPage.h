@@ -56,6 +56,7 @@ class MainPage {
   winrt::Windows::UI::Xaml::Controls::TextBlock statusText_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Border settingsPanel_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBox searchBox_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::TextBox homeBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBox userAgentBox_{nullptr};
 
   winrt::hstring currentUrl_;

@@ -103,54 +103,6 @@ void StoreSetting(std::wstring_view key, std::wstring const& value) {
   }
 }
 
-constexpr DWORD kUrlMonOptionUserAgent = 0x10000001;
-constexpr DWORD kUrlMonOptionUserAgentRefresh = 0x10000002;
-
-std::string NarrowString(std::wstring const& text) {
-  if (text.empty()) {
-    return {};
-  }
-  const int size = WideCharToMultiByte(CP_UTF8, 0, text.data(),
-                                       static_cast<int>(text.size()), nullptr,
-                                       0, nullptr, nullptr);
-  std::string result(static_cast<size_t>(size), '\0');
-  WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
-                      result.data(), size, nullptr, nullptr);
-  return result;
-}
-
-void ApplyProcessUserAgent(std::wstring const& userAgent) {
-  using SetSessionOption = HRESULT(WINAPI*)(DWORD, LPVOID, DWORD, DWORD);
-  static SetSessionOption setSessionOption = [] {
-    HMODULE urlmon = LoadLibraryW(L"urlmon.dll");
-    if (!urlmon) {
-      return static_cast<SetSessionOption>(nullptr);
-    }
-    return reinterpret_cast<SetSessionOption>(
-        GetProcAddress(urlmon, "UrlMkSetSessionOption"));
-  }();
-  if (!setSessionOption) {
-    log::Write(L"main: UrlMkSetSessionOption is unavailable");
-    return;
-  }
-
-  setSessionOption(kUrlMonOptionUserAgentRefresh, nullptr, 0, 0);
-  if (userAgent.empty()) {
-    return;
-  }
-
-  const std::string narrow = NarrowString(userAgent);
-  const HRESULT result =
-      setSessionOption(kUrlMonOptionUserAgent,
-                       const_cast<char*>(narrow.data()),
-                       static_cast<DWORD>(narrow.size()), 0);
-  if (FAILED(result)) {
-    log::Write(L"main: user agent was rejected");
-  } else {
-    log::Write(L"main: user agent applied");
-  }
-}
-
 constexpr uint32_t kMaxFaviconBytes = 2u * 1024u * 1024u;
 
 winrt::Windows::Foundation::IAsyncAction SaveScaledPngAsync(
@@ -230,7 +182,6 @@ std::wstring JsString(std::wstring const& text) {
 
 MainPage::MainPage(winrt::hstring const& initialUrl) {
   log::Write(L"main: building UI");
-  ApplyProcessUserAgent(LoadSetting(kUserAgentKey));
   BuildUi();
   WireEvents();
   WireSystemBack();
@@ -808,7 +759,6 @@ void MainPage::SaveSettings() {
   StoreSetting(kSearchUrlKey, defaultSearch ? std::wstring() : search);
   StoreSetting(kHomeUrlKey, defaultHome ? std::wstring() : home);
   StoreSetting(kUserAgentKey, userAgent);
-  ApplyProcessUserAgent(userAgent);
   log::Write(L"main: settings saved");
   HideSettings();
   if (userAgent != previousUserAgent && !currentUrl_.empty()) {

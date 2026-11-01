@@ -1041,9 +1041,9 @@ winrt::fire_and_forget MainPage::PinCurrentPageAsync(
             co_await SaveScaledPngAsync(memory, 71, file71);
             co_await SaveScaledPngAsync(memory, 44, file44);
 
-            logo150 = L"ms-appdata:///local/" + tileId + L"-150.png";
-            logo71 = L"ms-appdata:///local/" + tileId + L"-71.png";
-            logo44 = L"ms-appdata:///local/" + tileId + L"-44.png";
+            logo150 = L"ms-appdata:///local/tiles/" + tileId + L"-150.png";
+            logo71 = L"ms-appdata:///local/tiles/" + tileId + L"-71.png";
+            logo44 = L"ms-appdata:///local/tiles/" + tileId + L"-44.png";
           }
         }
       }

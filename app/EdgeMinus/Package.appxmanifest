@@ -42,7 +42,7 @@
       <uap:VisualElements
           DisplayName="EdgeMinus"
           Description="A lightweight web browser for Windows 10 Mobile"
-          BackgroundColor="#1C1B22"
+          BackgroundColor="transparent"
           Square150x150Logo="Assets\Square150x150Logo.png"
           Square44x44Logo="Assets\Square44x44Logo.png">
         <uap:DefaultTile
@@ -51,7 +51,7 @@
             Square310x310Logo="Assets\Square310x310Logo.png" />
         <uap:SplashScreen
             Image="Assets\SplashScreen.png"
-            BackgroundColor="#1C1B22" />
+            BackgroundColor="transparent" />
       </uap:VisualElements>
 
       <Extensions>

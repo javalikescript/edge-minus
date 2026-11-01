@@ -15,6 +15,7 @@ $outDir = Join-Path $root "output"
 $appxDir = Join-Path $outDir "appx"
 $pfx = Join-Path $projectDir "EdgeMinus_TemporaryKey.pfx"
 $pfxPassword = "edgeminus"
+$appVersion = "1.0.0.0"
 
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 New-Item -ItemType Directory -Force -Path $appxDir | Out-Null
@@ -155,7 +156,7 @@ if ($LASTEXITCODE -ne 0) {
 $produced = Get-ChildItem $appxDir -Recurse -File -Filter "EdgeMinus*_$Platform.appx" -ErrorAction SilentlyContinue |
   Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($produced) {
-  $appx = Join-Path $appxDir "EdgeMinus_1.0.0.0_$Platform.appx"
+  $appx = Join-Path $appxDir "EdgeMinus_${appVersion}_$Platform.appx"
   if ($produced.FullName -ne $appx) {
     Copy-Item $produced.FullName $appx -Force
   }
@@ -206,7 +207,7 @@ if (-not (Test-Path (Join-Path $staging "resources.pri"))) {
   & $makepri.FullName new /pr $staging /cf $priConfig /of (Join-Path $staging "resources.pri") /o | Out-Null
 }
 
-$appx = Join-Path $appxDir "EdgeMinus_1.0.0.0_$Platform.appx"
+$appx = Join-Path $appxDir "EdgeMinus_${appVersion}_$Platform.appx"
 & $makeappx.FullName pack /d $staging /p $appx /o
 if ($LASTEXITCODE -ne 0) { throw "makeappx failed." }
 

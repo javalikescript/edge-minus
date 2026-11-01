@@ -1053,7 +1053,6 @@ winrt::fire_and_forget MainPage::PinCurrentPageAsync(
     tile.SmallLogo(winrt::Windows::Foundation::Uri(winrt::hstring(logo44)));
     tile.VisualElements().Square44x44Logo(winrt::Windows::Foundation::Uri(winrt::hstring(logo44)));
     tile.VisualElements().Square71x71Logo(winrt::Windows::Foundation::Uri(winrt::hstring(logo71)));
-    tile.BackgroundColor(ChromeBg());
     tile.ForegroundText(ForegroundText::Light);
     const bool created = co_await tile.RequestCreateAsync();
     if (created) {

@@ -15,6 +15,7 @@ class MainPage {
  private:
   void BuildUi();
   void BuildSettingsPanel();
+  void BuildLogsPanel();
   void WireEvents();
   void WireSystemBack();
   void ApplySystemChrome();
@@ -26,6 +27,8 @@ class MainPage {
   void HideError();
   void ShowSettings();
   void HideSettings();
+  void ShowLogs();
+  void HideLogs();
   void SaveSettings();
   void PinCurrentPage();
   winrt::fire_and_forget PinCurrentPageAsync(std::wstring tileId,
@@ -62,6 +65,9 @@ class MainPage {
   winrt::Windows::UI::Xaml::Controls::TextBox searchBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBox homeBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBox userAgentBox_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::Border logsPanel_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::ScrollViewer logsScroll_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::TextBlock logsText_{nullptr};
 
   winrt::hstring currentUrl_;
 };

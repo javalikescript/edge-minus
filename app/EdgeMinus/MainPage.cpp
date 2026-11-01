@@ -314,6 +314,7 @@ void MainPage::BuildUi() {
   contentHost_.Children().Append(errorPanel_);
 
   BuildSettingsPanel();
+  BuildLogsPanel();
 
   Grid::SetRow(contentHost_, 1);
   root_.Children().Append(contentHost_);
@@ -425,6 +426,19 @@ void MainPage::BuildSettingsPanel() {
   uaHint.Margin(ThicknessHelper::FromLengths(0, 4, 0, 20));
   stack.Children().Append(uaHint);
 
+  auto logsButton = Button();
+  logsButton.Content(winrt::box_value(winrt::hstring(L"View logs")));
+  logsButton.HorizontalAlignment(HorizontalAlignment::Left);
+  logsButton.Background(Brush(ButtonBg()));
+  logsButton.Foreground(Brush(ChromeFg()));
+  logsButton.BorderThickness(ThicknessHelper::FromUniformLength(0));
+  logsButton.Padding(ThicknessHelper::FromLengths(18, 8, 18, 8));
+  logsButton.Margin(ThicknessHelper::FromLengths(0, 0, 0, 20));
+  logsButton.Click([this](IInspectable const&, RoutedEventArgs const&) {
+    ShowLogs();
+  });
+  stack.Children().Append(logsButton);
+
   auto actions = StackPanel();
   actions.Orientation(Orientation::Horizontal);
   actions.HorizontalAlignment(HorizontalAlignment::Right);
@@ -455,6 +469,73 @@ void MainPage::BuildSettingsPanel() {
   stack.Children().Append(actions);
   settingsPanel_.Child(stack);
   contentHost_.Children().Append(settingsPanel_);
+}
+
+void MainPage::BuildLogsPanel() {
+  logsPanel_ = Border();
+  logsPanel_.Background(Brush(ErrorBg()));
+  logsPanel_.Visibility(Visibility::Collapsed);
+
+  auto layout = Grid();
+  layout.Margin(ThicknessHelper::FromLengths(16, 12, 16, 12));
+
+  auto headerRow = RowDefinition();
+  headerRow.Height(GridLengthHelper::Auto());
+  auto bodyRow = RowDefinition();
+  bodyRow.Height(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+  layout.RowDefinitions().Append(headerRow);
+  layout.RowDefinitions().Append(bodyRow);
+
+  auto header = Grid();
+  auto titleColumn = ColumnDefinition();
+  titleColumn.Width(
+      GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+  auto closeColumn = ColumnDefinition();
+  closeColumn.Width(GridLengthHelper::Auto());
+  header.ColumnDefinitions().Append(titleColumn);
+  header.ColumnDefinitions().Append(closeColumn);
+
+  auto title = TextBlock();
+  title.Text(L"Application logs");
+  title.FontSize(20);
+  title.FontWeight(FontWeights::Bold());
+  title.Foreground(Brush(ChromeFg()));
+  title.VerticalAlignment(VerticalAlignment::Center);
+  Grid::SetColumn(title, 0);
+  header.Children().Append(title);
+
+  auto closeButton = Button();
+  closeButton.Content(winrt::box_value(winrt::hstring(L"Close")));
+  closeButton.Background(Brush(ButtonBg()));
+  closeButton.Foreground(Brush(ChromeFg()));
+  closeButton.BorderThickness(ThicknessHelper::FromUniformLength(0));
+  closeButton.Padding(ThicknessHelper::FromLengths(18, 8, 18, 8));
+  closeButton.Click([this](IInspectable const&, RoutedEventArgs const&) {
+    HideLogs();
+  });
+  Grid::SetColumn(closeButton, 1);
+  header.Children().Append(closeButton);
+
+  Grid::SetRow(header, 0);
+  layout.Children().Append(header);
+
+  logsText_ = TextBlock();
+  logsText_.FontFamily(FontFamily(L"Consolas"));
+  logsText_.FontSize(11);
+  logsText_.Foreground(Brush(MutedFg()));
+  logsText_.TextWrapping(TextWrapping::Wrap);
+  logsText_.IsTextSelectionEnabled(true);
+
+  logsScroll_ = ScrollViewer();
+  logsScroll_.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
+  logsScroll_.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
+  logsScroll_.Margin(ThicknessHelper::FromLengths(0, 12, 0, 0));
+  logsScroll_.Content(logsText_);
+  Grid::SetRow(logsScroll_, 1);
+  layout.Children().Append(logsScroll_);
+
+  logsPanel_.Child(layout);
+  contentHost_.Children().Append(logsPanel_);
 }
 
 void MainPage::WireEvents() {
@@ -749,6 +830,23 @@ void MainPage::HideSettings() {
   }
 }
 
+void MainPage::ShowLogs() {
+  const std::wstring text = log::Read();
+  logsText_.Text(text.empty() ? winrt::hstring(L"No log entries yet.")
+                              : winrt::hstring(text));
+  logsPanel_.Visibility(Visibility::Visible);
+  try {
+    logsScroll_.UpdateLayout();
+    logsScroll_.ChangeView(nullptr, logsScroll_.ScrollableHeight(), nullptr,
+                           true);
+  } catch (...) {
+  }
+}
+
+void MainPage::HideLogs() {
+  logsPanel_.Visibility(Visibility::Collapsed);
+}
+
 void MainPage::SaveSettings() {
   const std::wstring previousUserAgent = std::wstring(UserAgent());
   const std::wstring search = Trim(std::wstring(searchBox_.Text()));
@@ -948,6 +1046,10 @@ void MainPage::ApplyUserAgentScript() {
 }
 
 bool MainPage::HandleBack() {
+  if (logsPanel_.Visibility() == Visibility::Visible) {
+    HideLogs();
+    return true;
+  }
   if (settingsPanel_.Visibility() == Visibility::Visible) {
     HideSettings();
     return true;

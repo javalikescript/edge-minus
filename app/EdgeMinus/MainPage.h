@@ -34,6 +34,7 @@ class MainPage {
   winrt::fire_and_forget PinCurrentPageAsync(std::wstring tileId,
                                              std::wstring display,
                                              std::wstring argumentsText);
+  winrt::fire_and_forget CheckForUpdates(std::wstring url);
   bool HandleBack();
   void LaunchExternal(winrt::Windows::Foundation::Uri const& uri);
 
@@ -65,6 +66,7 @@ class MainPage {
   winrt::Windows::UI::Xaml::Controls::TextBox searchBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBox homeBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBox userAgentBox_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::TextBox updateUrlBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Border logsPanel_{nullptr};
   winrt::Windows::UI::Xaml::Controls::ScrollViewer logsScroll_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBlock logsText_{nullptr};

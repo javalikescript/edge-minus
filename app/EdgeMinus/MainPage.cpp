@@ -120,8 +120,7 @@ winrt::Windows::Foundation::IAsyncAction SaveScaledPngAsync(
   uint64_t bestArea = 0;
   for (uint32_t index = 0; index < decoder.FrameCount(); ++index) {
     auto frame = co_await decoder.GetFrameAsync(index);
-    const uint64_t area =
-        static_cast<uint64_t>(frame.PixelWidth()) * frame.PixelHeight();
+    const uint64_t area = static_cast<uint64_t>(frame.PixelWidth()) * frame.PixelHeight();
     if (area > bestArea) {
       bestArea = area;
       bestFrame = index;
@@ -140,8 +139,7 @@ winrt::Windows::Foundation::IAsyncAction SaveScaledPngAsync(
       ColorManagementMode::ColorManageToSRgb);
 
   auto stream = co_await file.OpenAsync(FileAccessMode::ReadWrite);
-  auto encoder = co_await BitmapEncoder::CreateAsync(
-      BitmapEncoder::PngEncoderId(), stream);
+  auto encoder = co_await BitmapEncoder::CreateAsync(BitmapEncoder::PngEncoderId(), stream);
   encoder.SetSoftwareBitmap(bitmap);
   co_await encoder.FlushAsync();
 }
@@ -369,8 +367,7 @@ void MainPage::BuildSettingsPanel() {
   stack.Children().Append(searchBox_);
 
   auto searchHint = TextBlock();
-  searchHint.Text(
-      L"Used for text that is not a URL. {query} is replaced with the terms.");
+  searchHint.Text(L"Used for text that is not a URL. {query} is replaced with the terms.");
   searchHint.FontSize(11);
   searchHint.Foreground(Brush(MutedFg()));
   searchHint.TextWrapping(TextWrapping::Wrap);
@@ -395,8 +392,7 @@ void MainPage::BuildSettingsPanel() {
   stack.Children().Append(homeBox_);
 
   auto homeHint = TextBlock();
-  homeHint.Text(
-      L"Opened by the home button and on startup. Defaults to about:blank.");
+  homeHint.Text(L"Opened by the home button and on startup. Defaults to about:blank.");
   homeHint.FontSize(11);
   homeHint.Foreground(Brush(MutedFg()));
   homeHint.TextWrapping(TextWrapping::Wrap);
@@ -890,8 +886,7 @@ void MainPage::ShowLogs() {
   logsPanel_.Visibility(Visibility::Visible);
   try {
     logsScroll_.UpdateLayout();
-    logsScroll_.ChangeView(nullptr, logsScroll_.ScrollableHeight(), nullptr,
-                           true);
+    logsScroll_.ChangeView(nullptr, logsScroll_.ScrollableHeight(), nullptr, true);
   } catch (...) {
   }
 }
@@ -1017,14 +1012,11 @@ winrt::fire_and_forget MainPage::PinCurrentPageAsync(
             co_await memory.WriteAsync(buffer);
             memory.Seek(0);
 
-            log::Write(L"main: creating app local tiles folder");
             const auto folder = co_await ApplicationData::Current()
                                     .LocalFolder()
                                     .CreateFolderAsync(
                                         L"tiles",
                                         CreationCollisionOption::OpenIfExists);
-
-            log::Write(L"main: folder created");
 
             const auto file150 = co_await folder.CreateFileAsync(
                 winrt::hstring(tileId + L"-150.png"),
@@ -1036,7 +1028,6 @@ winrt::fire_and_forget MainPage::PinCurrentPageAsync(
                 winrt::hstring(tileId + L"-44.png"),
                 CreationCollisionOption::ReplaceExisting);
 
-            log::Write(L"main: scale and save png");
             co_await SaveScaledPngAsync(memory, 150, file150);
             co_await SaveScaledPngAsync(memory, 71, file71);
             co_await SaveScaledPngAsync(memory, 44, file44);
@@ -1058,13 +1049,10 @@ winrt::fire_and_forget MainPage::PinCurrentPageAsync(
     SecondaryTile tile(
         winrt::hstring(tileId), winrt::hstring(display),
         winrt::hstring(display), winrt::hstring(argumentsText),
-        TileOptions::None, winrt::Windows::Foundation::Uri(
-                                winrt::hstring(logo150)));
+        TileOptions::None, winrt::Windows::Foundation::Uri(winrt::hstring(logo150)));
     tile.SmallLogo(winrt::Windows::Foundation::Uri(winrt::hstring(logo44)));
-    tile.VisualElements().Square44x44Logo(
-        winrt::Windows::Foundation::Uri(winrt::hstring(logo44)));
-    tile.VisualElements().Square71x71Logo(
-        winrt::Windows::Foundation::Uri(winrt::hstring(logo71)));
+    tile.VisualElements().Square44x44Logo(winrt::Windows::Foundation::Uri(winrt::hstring(logo44)));
+    tile.VisualElements().Square71x71Logo(winrt::Windows::Foundation::Uri(winrt::hstring(logo71)));
     tile.BackgroundColor(ChromeBg());
     tile.ForegroundText(ForegroundText::Light);
     const bool created = co_await tile.RequestCreateAsync();
@@ -1085,19 +1073,16 @@ winrt::fire_and_forget MainPage::CheckForUpdates(std::wstring url) {
     ShowSettings();
     co_return;
   }
-
   try {
     const Uri target{winrt::hstring(url)};
     const std::wstring scheme(target.SchemeName().c_str());
-    if (_wcsicmp(scheme.c_str(), L"http") != 0 &&
-        _wcsicmp(scheme.c_str(), L"https") != 0) {
+    if (_wcsicmp(scheme.c_str(), L"http") != 0 && _wcsicmp(scheme.c_str(), L"https") != 0) {
       log::Write(L"update: unsupported update URL " + url);
       statusText_.Text(L"Update URL must be an http or https address.");
       statusText_.Visibility(Visibility::Visible);
       ShowSettings();
       co_return;
     }
-
     PackageManager packageManager;
     log::Write(L"update: installing " + url);
     if (url.size() >= 5 && url.compare(url.size() - 5, 5, L".appx") == 0) {
@@ -1129,7 +1114,6 @@ void MainPage::ApplyUserAgentScript() {
   if (userAgent.empty()) {
     return;
   }
-
   const std::wstring script =
       L"(function(){var u=" + JsString(userAgent) +
       L";var n=window.navigator;var p=Object.getPrototypeOf(n);"
@@ -1140,7 +1124,6 @@ void MainPage::ApplyUserAgentScript() {
       L"try{Object.defineProperty(n,'appVersion',{get:function(){return "
       L"u.replace(/^Mozilla\\//,'');},configurable:true});}catch(e){}"
       L"})();";
-
   try {
     web_.InvokeScriptAsync(L"eval", {winrt::hstring(script)});
   } catch (...) {
@@ -1186,7 +1169,6 @@ winrt::hstring MainPage::ResolveInput(winrt::hstring const& input) const {
   if (text.empty()) {
     return HomeUrl();
   }
-
   std::wstring lower = text;
   std::transform(lower.begin(), lower.end(), lower.begin(),
                  [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
@@ -1198,13 +1180,11 @@ winrt::hstring MainPage::ResolveInput(winrt::hstring const& input) const {
       StartsWith(lower, L"ms-appdata:")) {
     return winrt::hstring(text);
   }
-
   if (StartsWith(lower, L"mailto:") || StartsWith(lower, L"tel:") ||
       StartsWith(lower, L"sms:") || StartsWith(lower, L"maps:") ||
       StartsWith(lower, L"ms-")) {
     return winrt::hstring(text);
   }
-
   const bool hasSpace = text.find(L' ') != std::wstring::npos;
   const bool looksLikeHost =
       !hasSpace &&
@@ -1223,7 +1203,6 @@ winrt::hstring MainPage::ResolveInput(winrt::hstring const& input) const {
     result += text;
     return winrt::hstring(result);
   }
-
   const winrt::hstring escaped = Uri::EscapeComponent(winrt::hstring(text));
   std::wstring search = LoadSetting(kSearchUrlKey);
   if (search.empty()) {

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AppInstaller
+    Uri="http://192.168.0.40/tmp/EdgeMinus.appinstaller"
+    Version="1.0.0.0"
+    xmlns="http://schemas.microsoft.com/appx/appinstaller/2018">
+
+    <MainPackage
+        Name="EdgeMinus"
+        Publisher="EdgeMinus"
+        Version="1.0.0.0"
+        Uri="http://192.168.0.40/tmp/EdgeMinus_1.0.0.0_ARM.appx"
+        ProcessorArchitecture="ARM" />
+
+    <UpdateSettings>
+        <OnLaunch
+            HoursBetweenUpdateChecks="0"
+            ShowPrompt="true"
+            UpdateBlocksActivation="false" />
+    </UpdateSettings>
+
+</AppInstaller>

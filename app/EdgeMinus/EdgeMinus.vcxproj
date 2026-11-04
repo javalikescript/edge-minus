@@ -53,6 +53,7 @@
       <AdditionalOptions>/await %(AdditionalOptions)</AdditionalOptions>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <PreprocessorDefinitions>MINIZ_NO_STDIO;MINIZ_NO_TIME;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>$(ProjectDir);$(WindowsSdkDir)Include\$(WindowsTargetPlatformVersion)\cppwinrt;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
@@ -62,8 +63,10 @@
 
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="Extensions.h" />
     <ClInclude Include="Log.h" />
     <ClInclude Include="MainPage.h" />
+    <ClInclude Include="third_party\miniz\miniz.h" />
   </ItemGroup>
 
   <ItemGroup>
@@ -71,8 +74,13 @@
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="App.cpp" />
+    <ClCompile Include="Extensions.cpp" />
     <ClCompile Include="Log.cpp" />
     <ClCompile Include="MainPage.cpp" />
+    <ClCompile Include="third_party\miniz\miniz.c">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <CompileAs>CompileAsCpp</CompileAs>
+    </ClCompile>
   </ItemGroup>
 
   <ItemGroup>

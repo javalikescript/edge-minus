@@ -1,5 +1,6 @@
 #include "pch.h"
 
+#include "Extensions.h"
 #include "MainPage.h"
 
 #include "Log.h"
@@ -449,6 +450,17 @@ void MainPage::BuildSettingsPanel() {
   updateHint.Margin(ThicknessHelper::FromLengths(0, 4, 0, 20));
   stack.Children().Append(updateHint);
 
+  auto extensionsLabel = TextBlock();
+  extensionsLabel.Text(L"Extensions");
+  extensionsLabel.FontSize(14);
+  extensionsLabel.Foreground(Brush(ChromeFg()));
+  extensionsLabel.Margin(ThicknessHelper::FromLengths(0, 0, 0, 6));
+  stack.Children().Append(extensionsLabel);
+
+  extensionsList_ = StackPanel();
+  extensionsList_.Margin(ThicknessHelper::FromLengths(0, 0, 0, 20));
+  stack.Children().Append(extensionsList_);
+
   auto tools = StackPanel();
   tools.Orientation(Orientation::Horizontal);
   tools.Margin(ThicknessHelper::FromLengths(0, 0, 0, 20));
@@ -595,6 +607,13 @@ void MainPage::WireEvents() {
   });
   menu.Items().Append(settingsItem);
 
+  auto addExtensionItem = MenuFlyoutItem();
+  addExtensionItem.Text(L"Add extension");
+  addExtensionItem.Click([this](IInspectable const&, RoutedEventArgs const&) {
+    AddExtension();
+  });
+  menu.Items().Append(addExtensionItem);
+
   auto pinItem = MenuFlyoutItem();
   pinItem.Text(L"Pin to start screen");
   pinItem.Click([this](IInspectable const&, RoutedEventArgs const&) {
@@ -646,8 +665,11 @@ void MainPage::WireEvents() {
 
         auto uri = args.Uri();
         if (!uri) {
+          log::Write(L"main: navigation starting without uri");
           return;
         }
+        log::Write(L"main: navigation starting " +
+                   std::wstring(uri.AbsoluteUri().c_str()));
 
         const winrt::hstring scheme = uri.SchemeName();
         if (!IsInternalScheme(scheme)) {
@@ -667,6 +689,8 @@ void MainPage::WireEvents() {
   web_.NavigationCompleted(
       [this](WebView const&, WebViewNavigationCompletedEventArgs const& args) {
         progress_.Visibility(Visibility::Collapsed);
+        log::Write(L"main: navigation completed success=" +
+                   std::wstring(args.IsSuccess() ? L"true" : L"false"));
 
         if (auto uri = args.Uri()) {
           currentUrl_ = uri.AbsoluteUri();
@@ -676,6 +700,7 @@ void MainPage::WireEvents() {
         if (args.IsSuccess()) {
           HideError();
           ApplyUserAgentScript();
+          ApplyExtensionScripts();
           const winrt::hstring title = web_.DocumentTitle();
           statusText_.Text(title.empty() ? winrt::hstring(L"Ready") : title);
           statusText_.Visibility(Visibility::Visible);
@@ -685,17 +710,26 @@ void MainPage::WireEvents() {
           statusText_.Text(L"Load failed");
           statusText_.Visibility(Visibility::Visible);
         }
+
+        if (!extensionsLoadStarted_) {
+          extensionsLoadStarted_ = true;
+          LoadExtensionsAsync();
+        }
         UpdateChrome();
       });
 
   web_.ContentLoading(
       [this](WebView const&, WebViewContentLoadingEventArgs const&) {
+        log::Write(L"main: content loading");
         ApplyUserAgentScript();
+        ApplyExtensionScripts();
       });
 
   web_.DOMContentLoaded(
       [this](WebView const&, WebViewDOMContentLoadedEventArgs const&) {
+        log::Write(L"main: dom content loaded");
         ApplyUserAgentScript();
+        ApplyExtensionScripts();
       });
 
   if (ApiInformation::IsEventPresent(L"Windows.UI.Xaml.Controls.WebView",
@@ -833,12 +867,12 @@ void MainPage::UpdateChrome() {
 }
 
 void MainPage::ShowError(winrt::hstring const& title,
-                         winrt::hstring const& detail) {
+                         winrt::hstring const& detail, bool includeUrl) {
   errorTitle_.Text(title);
-  if (currentUrl_.empty()) {
-    errorText_.Text(detail);
-  } else {
+  if (includeUrl && !currentUrl_.empty()) {
     errorText_.Text(detail + winrt::hstring(L"\n") + currentUrl_);
+  } else {
+    errorText_.Text(detail);
   }
   // A XAML WebView draws in its own surface, so an overlay above it is not
   // reliable on Windows 10 Mobile. Hide the view instead of fighting airspace.
@@ -849,6 +883,49 @@ void MainPage::ShowError(winrt::hstring const& title,
 void MainPage::HideError() {
   errorPanel_.Visibility(Visibility::Collapsed);
   web_.Visibility(Visibility::Visible);
+}
+
+void MainPage::AddExtension() {
+  AddExtensionAsync();
+}
+
+winrt::fire_and_forget MainPage::AddExtensionAsync() {
+  using namespace winrt::Windows::Storage;
+  using namespace winrt::Windows::Storage::Pickers;
+
+  try {
+    FileOpenPicker picker;
+    picker.SuggestedStartLocation(PickerLocationId::Downloads);
+    picker.FileTypeFilter().Append(L".zip");
+
+    const StorageFile file = co_await picker.PickSingleFileAsync();
+    if (!file) {
+      co_return;
+    }
+
+    statusText_.Text(L"Adding extension\u2026");
+    statusText_.Visibility(Visibility::Visible);
+    log::Write(L"extension: installing " + std::wstring(file.Name()));
+
+    const winrt::hstring id = co_await extensions::InstallFromZipAsync(file);
+    log::Write(L"extension: installed " + std::wstring(id));
+    co_await extensions::Manager::Get().LoadAsync(std::wstring(id.c_str()));
+    RefreshExtensionsList();
+    ApplyExtensionScripts();
+    statusText_.Text(L"Extension added");
+    statusText_.Visibility(Visibility::Visible);
+  } catch (winrt::hresult_error const& error) {
+    log::Write(L"extension: failed " + std::wstring(error.message()));
+    statusText_.Text(L"Could not add extension");
+    statusText_.Visibility(Visibility::Visible);
+    ShowError(L"Could not add extension", error.message(), false);
+  } catch (...) {
+    log::Write(L"extension: failed");
+    statusText_.Text(L"Could not add extension");
+    statusText_.Visibility(Visibility::Visible);
+    ShowError(L"Could not add extension",
+              L"The extension could not be installed.", false);
+  }
 }
 
 void MainPage::ShowSettings() {
@@ -868,6 +945,7 @@ void MainPage::ShowSettings() {
     updateUrl = L"http://192.168.0.40/tmp/EdgeMinus_1.0.0.0_ARM.appx";
   }
   updateUrlBox_.Text(winrt::hstring(updateUrl));
+  RefreshExtensionsList();
   web_.Visibility(Visibility::Collapsed);
   settingsPanel_.Visibility(Visibility::Visible);
 }
@@ -1126,6 +1204,117 @@ void MainPage::ApplyUserAgentScript() {
   try {
     web_.InvokeScriptAsync(L"eval", {winrt::hstring(script)});
   } catch (...) {
+  }
+}
+
+void MainPage::RefreshExtensionsList() {
+  if (!extensionsList_) {
+    return;
+  }
+  extensionsList_.Children().Clear();
+
+  const auto& installed = extensions::Manager::Get().All();
+  if (installed.empty()) {
+    auto empty = TextBlock();
+    empty.Text(L"No extensions installed.");
+    empty.FontSize(12);
+    empty.Foreground(Brush(MutedFg()));
+    extensionsList_.Children().Append(empty);
+    return;
+  }
+
+  for (auto const& extension : installed) {
+    auto row = Grid();
+    row.Margin(ThicknessHelper::FromLengths(0, 0, 0, 6));
+
+    auto infoColumn = ColumnDefinition();
+    infoColumn.Width(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+    auto actionColumn = ColumnDefinition();
+    actionColumn.Width(GridLengthHelper::Auto());
+    row.ColumnDefinitions().Append(infoColumn);
+    row.ColumnDefinitions().Append(actionColumn);
+
+    std::wstring label = extension.id;
+    if (!extension.patterns.empty()) {
+      label += L"  " + extension.patterns.front();
+    }
+
+    auto text = TextBlock();
+    text.Text(winrt::hstring(label));
+    text.FontSize(12);
+    text.Foreground(Brush(ChromeFg()));
+    text.TextTrimming(TextTrimming::CharacterEllipsis);
+    text.VerticalAlignment(VerticalAlignment::Center);
+    text.Margin(ThicknessHelper::FromLengths(0, 0, 8, 0));
+    Grid::SetColumn(text, 0);
+    row.Children().Append(text);
+
+    auto removeButton = Button();
+    removeButton.Content(winrt::box_value(winrt::hstring(L"Remove")));
+    removeButton.Background(Brush(ButtonBg()));
+    removeButton.Foreground(Brush(ChromeFg()));
+    removeButton.BorderThickness(ThicknessHelper::FromUniformLength(0));
+    removeButton.Padding(ThicknessHelper::FromLengths(12, 6, 12, 6));
+    const std::wstring id = extension.id;
+    removeButton.Click([this, id](IInspectable const&, RoutedEventArgs const&) {
+      RemoveExtensionAsync(id);
+    });
+    Grid::SetColumn(removeButton, 1);
+    row.Children().Append(removeButton);
+
+    extensionsList_.Children().Append(row);
+  }
+}
+
+winrt::fire_and_forget MainPage::RemoveExtensionAsync(std::wstring id) {
+  try {
+    co_await extensions::Manager::Get().RemoveAsync(id);
+    log::Write(L"extension: removed " + id);
+    RefreshExtensionsList();
+    statusText_.Text(L"Extension removed");
+    statusText_.Visibility(Visibility::Visible);
+  } catch (winrt::hresult_error const& error) {
+    log::Write(L"extension: remove failed " + std::wstring(error.message()));
+    statusText_.Text(L"Could not remove extension");
+    statusText_.Visibility(Visibility::Visible);
+  } catch (...) {
+    log::Write(L"extension: remove failed");
+    statusText_.Text(L"Could not remove extension");
+    statusText_.Visibility(Visibility::Visible);
+  }
+}
+
+winrt::fire_and_forget MainPage::LoadExtensionsAsync() {
+  log::Write(L"extensions: request load");
+  try {
+    co_await extensions::Manager::Get().LoadAllAsync();
+    log::Write(L"extensions: request load done " +
+               std::to_wstring(extensions::Manager::Get().All().size()));
+    RefreshExtensionsList();
+    ApplyExtensionScripts();
+  } catch (winrt::hresult_error const& error) {
+    log::Write(L"extensions: load failed " +
+               std::wstring(error.message()));
+  } catch (...) {
+    log::Write(L"extensions: load failed");
+  }
+}
+
+void MainPage::ApplyExtensionScripts() {
+  if (currentUrl_.empty()) {
+    return;
+  }
+  const std::wstring script = extensions::Manager::Get().BuildInjectionScript(
+      std::wstring(currentUrl_.c_str()));
+  if (script.empty()) {
+    return;
+  }
+  log::Write(L"extensions: injecting into " +
+             std::wstring(currentUrl_.c_str()));
+  try {
+    web_.InvokeScriptAsync(L"eval", {winrt::hstring(script)});
+  } catch (...) {
+    log::Write(L"extensions: injection failed");
   }
 }
 

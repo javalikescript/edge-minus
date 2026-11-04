@@ -23,13 +23,20 @@ class MainPage {
 
   void LoadFromAddressBar();
   void UpdateChrome();
-  void ShowError(winrt::hstring const& title, winrt::hstring const& detail);
+  void ShowError(winrt::hstring const& title, winrt::hstring const& detail,
+                 bool includeUrl = true);
   void HideError();
+  void AddExtension();
+  winrt::fire_and_forget AddExtensionAsync();
   void ShowSettings();
   void HideSettings();
   void ShowLogs();
   void HideLogs();
   void SaveSettings();
+  winrt::fire_and_forget LoadExtensionsAsync();
+  winrt::fire_and_forget RemoveExtensionAsync(std::wstring id);
+  void RefreshExtensionsList();
+  void ApplyExtensionScripts();
   void PinCurrentPage();
   winrt::fire_and_forget PinCurrentPageAsync(std::wstring tileId,
                                              std::wstring display,
@@ -67,11 +74,13 @@ class MainPage {
   winrt::Windows::UI::Xaml::Controls::TextBox homeBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBox userAgentBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBox updateUrlBox_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::StackPanel extensionsList_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Border logsPanel_{nullptr};
   winrt::Windows::UI::Xaml::Controls::ScrollViewer logsScroll_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBlock logsText_{nullptr};
 
   winrt::hstring currentUrl_;
+  bool extensionsLoadStarted_{false};
 };
 
 }  // namespace edgeminus

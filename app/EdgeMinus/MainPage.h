@@ -15,6 +15,7 @@ class MainPage {
  private:
   void BuildUi();
   void BuildSettingsPanel();
+  void BuildExtensionsPanel();
   void BuildLogsPanel();
   void WireEvents();
   void WireSystemBack();
@@ -30,6 +31,8 @@ class MainPage {
   winrt::fire_and_forget AddExtensionAsync();
   void ShowSettings();
   void HideSettings();
+  void ShowExtensions();
+  void HideExtensions();
   void ShowLogs();
   void HideLogs();
   void SaveSettings();
@@ -58,8 +61,8 @@ class MainPage {
   winrt::Windows::UI::Xaml::Controls::Grid contentHost_{nullptr};
   winrt::Windows::UI::Xaml::Controls::WebView web_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBox addressBar_{nullptr};
-  winrt::Windows::UI::Xaml::Controls::Button backButton_{nullptr};
-  winrt::Windows::UI::Xaml::Controls::Button forwardButton_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::MenuFlyoutItem backItem_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::MenuFlyoutItem forwardItem_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Button reloadButton_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Button goButton_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Button menuButton_{nullptr};
@@ -75,6 +78,7 @@ class MainPage {
   winrt::Windows::UI::Xaml::Controls::TextBox userAgentBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBox updateUrlBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::StackPanel extensionsList_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::Border extensionsPanel_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Border logsPanel_{nullptr};
   winrt::Windows::UI::Xaml::Controls::ScrollViewer logsScroll_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBlock logsText_{nullptr};

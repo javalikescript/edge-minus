@@ -214,15 +214,13 @@ void MainPage::BuildUi() {
   progress_.Visibility(Visibility::Collapsed);
 
   auto buttons = Grid();
-  for (int i = 0; i < 6; ++i) {
+  for (int i = 0; i < 4; ++i) {
     ColumnDefinition column;
-    column.Width(i == 3 ? GridLengthHelper::FromValueAndType(1, GridUnitType::Star)
+    column.Width(i == 1 ? GridLengthHelper::FromValueAndType(1, GridUnitType::Star)
                         : GridLengthHelper::Auto());
     buttons.ColumnDefinitions().Append(column);
   }
 
-  backButton_ = MakeGlyphButton(L"\uE72B");
-  forwardButton_ = MakeGlyphButton(L"\uE72A");
   reloadButton_ = MakeGlyphButton(L"\uE72C");
   goButton_ = MakeGlyphButton(L"\uE721");
   menuButton_ = MakeGlyphButton(L"\uE712");
@@ -245,15 +243,11 @@ void MainPage::BuildUi() {
   scope.Names().Append(name);
   addressBar_.InputScope(scope);
 
-  Grid::SetColumn(backButton_, 0);
-  Grid::SetColumn(forwardButton_, 1);
-  Grid::SetColumn(reloadButton_, 2);
-  Grid::SetColumn(addressBar_, 3);
-  Grid::SetColumn(goButton_, 4);
-  Grid::SetColumn(menuButton_, 5);
+  Grid::SetColumn(reloadButton_, 0);
+  Grid::SetColumn(addressBar_, 1);
+  Grid::SetColumn(goButton_, 2);
+  Grid::SetColumn(menuButton_, 3);
 
-  buttons.Children().Append(backButton_);
-  buttons.Children().Append(forwardButton_);
   buttons.Children().Append(reloadButton_);
   buttons.Children().Append(addressBar_);
   buttons.Children().Append(goButton_);
@@ -315,6 +309,7 @@ void MainPage::BuildUi() {
   contentHost_.Children().Append(errorPanel_);
 
   BuildSettingsPanel();
+  BuildExtensionsPanel();
   BuildLogsPanel();
 
   Grid::SetRow(contentHost_, 1);
@@ -450,17 +445,6 @@ void MainPage::BuildSettingsPanel() {
   updateHint.Margin(ThicknessHelper::FromLengths(0, 4, 0, 20));
   stack.Children().Append(updateHint);
 
-  auto extensionsLabel = TextBlock();
-  extensionsLabel.Text(L"Extensions");
-  extensionsLabel.FontSize(14);
-  extensionsLabel.Foreground(Brush(ChromeFg()));
-  extensionsLabel.Margin(ThicknessHelper::FromLengths(0, 0, 0, 6));
-  stack.Children().Append(extensionsLabel);
-
-  extensionsList_ = StackPanel();
-  extensionsList_.Margin(ThicknessHelper::FromLengths(0, 0, 0, 20));
-  stack.Children().Append(extensionsList_);
-
   auto tools = StackPanel();
   tools.Orientation(Orientation::Horizontal);
   tools.Margin(ThicknessHelper::FromLengths(0, 0, 0, 20));
@@ -525,6 +509,89 @@ void MainPage::BuildSettingsPanel() {
   scroll.Content(stack);
   settingsPanel_.Child(scroll);
   contentHost_.Children().Append(settingsPanel_);
+}
+
+void MainPage::BuildExtensionsPanel() {
+  extensionsPanel_ = Border();
+  extensionsPanel_.Background(Brush(ErrorBg()));
+  extensionsPanel_.Visibility(Visibility::Collapsed);
+
+  auto layout = Grid();
+  layout.Margin(ThicknessHelper::FromLengths(16, 12, 16, 12));
+
+  auto headerRow = RowDefinition();
+  headerRow.Height(GridLengthHelper::Auto());
+  auto bodyRow = RowDefinition();
+  bodyRow.Height(GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+  auto actionsRow = RowDefinition();
+  actionsRow.Height(GridLengthHelper::Auto());
+  layout.RowDefinitions().Append(headerRow);
+  layout.RowDefinitions().Append(bodyRow);
+  layout.RowDefinitions().Append(actionsRow);
+
+  auto header = Grid();
+  auto titleColumn = ColumnDefinition();
+  titleColumn.Width(
+      GridLengthHelper::FromValueAndType(1, GridUnitType::Star));
+  auto closeColumn = ColumnDefinition();
+  closeColumn.Width(GridLengthHelper::Auto());
+  header.ColumnDefinitions().Append(titleColumn);
+  header.ColumnDefinitions().Append(closeColumn);
+
+  auto title = TextBlock();
+  title.Text(L"Extensions");
+  title.FontSize(20);
+  title.FontWeight(FontWeights::Bold());
+  title.Foreground(Brush(ChromeFg()));
+  title.VerticalAlignment(VerticalAlignment::Center);
+  Grid::SetColumn(title, 0);
+  header.Children().Append(title);
+
+  auto closeButton = Button();
+  closeButton.Content(winrt::box_value(winrt::hstring(L"Close")));
+  closeButton.Background(Brush(ButtonBg()));
+  closeButton.Foreground(Brush(ChromeFg()));
+  closeButton.BorderThickness(ThicknessHelper::FromUniformLength(0));
+  closeButton.Padding(ThicknessHelper::FromLengths(18, 8, 18, 8));
+  closeButton.Click([this](IInspectable const&, RoutedEventArgs const&) {
+    HideExtensions();
+  });
+  Grid::SetColumn(closeButton, 1);
+  header.Children().Append(closeButton);
+
+  Grid::SetRow(header, 0);
+  layout.Children().Append(header);
+
+  extensionsList_ = StackPanel();
+  extensionsList_.Margin(ThicknessHelper::FromLengths(0, 12, 0, 12));
+
+  auto scroll = ScrollViewer();
+  scroll.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
+  scroll.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
+  scroll.Content(extensionsList_);
+  Grid::SetRow(scroll, 1);
+  layout.Children().Append(scroll);
+
+  auto actions = StackPanel();
+  actions.Orientation(Orientation::Horizontal);
+  actions.HorizontalAlignment(HorizontalAlignment::Right);
+
+  auto addButton = Button();
+  addButton.Content(winrt::box_value(winrt::hstring(L"Add extension")));
+  addButton.Background(Brush(Accent()));
+  addButton.Foreground(Brush(ChromeFg()));
+  addButton.BorderThickness(ThicknessHelper::FromUniformLength(0));
+  addButton.Padding(ThicknessHelper::FromLengths(18, 8, 18, 8));
+  addButton.Click([this](IInspectable const&, RoutedEventArgs const&) {
+    AddExtension();
+  });
+  actions.Children().Append(addButton);
+
+  Grid::SetRow(actions, 2);
+  layout.Children().Append(actions);
+
+  extensionsPanel_.Child(layout);
+  contentHost_.Children().Append(extensionsPanel_);
 }
 
 void MainPage::BuildLogsPanel() {
@@ -600,19 +667,48 @@ void MainPage::WireEvents() {
   });
 
   auto menu = MenuFlyout();
+
+  auto backIcon = FontIcon();
+  backIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
+  backIcon.Glyph(L"\uE72B");
+  backItem_ = MenuFlyoutItem();
+  backItem_.Text(L"Back");
+  backItem_.Icon(backIcon);
+  backItem_.Click([this](IInspectable const&, RoutedEventArgs const&) {
+    if (web_.CanGoBack()) {
+      web_.GoBack();
+    }
+  });
+  menu.Items().Append(backItem_);
+
+  auto forwardIcon = FontIcon();
+  forwardIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
+  forwardIcon.Glyph(L"\uE72A");
+  forwardItem_ = MenuFlyoutItem();
+  forwardItem_.Text(L"Forward");
+  forwardItem_.Icon(forwardIcon);
+  forwardItem_.Click([this](IInspectable const&, RoutedEventArgs const&) {
+    if (web_.CanGoForward()) {
+      web_.GoForward();
+    }
+  });
+  menu.Items().Append(forwardItem_);
+
+  menu.Items().Append(MenuFlyoutSeparator());
+
+  auto extensionsItem = MenuFlyoutItem();
+  extensionsItem.Text(L"Extensions");
+  extensionsItem.Click([this](IInspectable const&, RoutedEventArgs const&) {
+    ShowExtensions();
+  });
+  menu.Items().Append(extensionsItem);
+
   auto settingsItem = MenuFlyoutItem();
   settingsItem.Text(L"Settings");
   settingsItem.Click([this](IInspectable const&, RoutedEventArgs const&) {
     ShowSettings();
   });
   menu.Items().Append(settingsItem);
-
-  auto addExtensionItem = MenuFlyoutItem();
-  addExtensionItem.Text(L"Add extension");
-  addExtensionItem.Click([this](IInspectable const&, RoutedEventArgs const&) {
-    AddExtension();
-  });
-  menu.Items().Append(addExtensionItem);
 
   auto pinItem = MenuFlyoutItem();
   pinItem.Text(L"Pin to start screen");
@@ -621,18 +717,6 @@ void MainPage::WireEvents() {
   });
   menu.Items().Append(pinItem);
   menuButton_.Flyout(menu);
-
-  backButton_.Click([this](IInspectable const&, RoutedEventArgs const&) {
-    if (web_.CanGoBack()) {
-      web_.GoBack();
-    }
-  });
-
-  forwardButton_.Click([this](IInspectable const&, RoutedEventArgs const&) {
-    if (web_.CanGoForward()) {
-      web_.GoForward();
-    }
-  });
 
   reloadButton_.Click([this](IInspectable const&, RoutedEventArgs const&) {
     if (errorPanel_.Visibility() == Visibility::Visible && !currentUrl_.empty()) {
@@ -857,8 +941,12 @@ void MainPage::UpdateChrome() {
   try {
     const bool canBack = web_.CanGoBack();
     const bool canForward = web_.CanGoForward();
-    backButton_.IsEnabled(canBack);
-    forwardButton_.IsEnabled(canForward);
+    if (backItem_) {
+      backItem_.IsEnabled(canBack);
+    }
+    if (forwardItem_) {
+      forwardItem_.IsEnabled(canForward);
+    }
     SystemNavigationManager::GetForCurrentView().AppViewBackButtonVisibility(
         canBack ? AppViewBackButtonVisibility::Visible
                 : AppViewBackButtonVisibility::Collapsed);
@@ -920,11 +1008,13 @@ winrt::fire_and_forget MainPage::AddExtensionAsync() {
     log::Write(L"extension: failed " + std::wstring(error.message()));
     statusText_.Text(L"Could not add extension");
     statusText_.Visibility(Visibility::Visible);
+    HideExtensions();
     ShowError(L"Could not add extension", error.message(), false);
   } catch (...) {
     log::Write(L"extension: failed");
     statusText_.Text(L"Could not add extension");
     statusText_.Visibility(Visibility::Visible);
+    HideExtensions();
     ShowError(L"Could not add extension",
               L"The extension could not be installed.", false);
   }
@@ -954,6 +1044,19 @@ void MainPage::ShowSettings() {
 
 void MainPage::HideSettings() {
   settingsPanel_.Visibility(Visibility::Collapsed);
+  if (errorPanel_.Visibility() != Visibility::Visible) {
+    web_.Visibility(Visibility::Visible);
+  }
+}
+
+void MainPage::ShowExtensions() {
+  RefreshExtensionsList();
+  web_.Visibility(Visibility::Collapsed);
+  extensionsPanel_.Visibility(Visibility::Visible);
+}
+
+void MainPage::HideExtensions() {
+  extensionsPanel_.Visibility(Visibility::Collapsed);
   if (errorPanel_.Visibility() != Visibility::Visible) {
     web_.Visibility(Visibility::Visible);
   }
@@ -1348,6 +1451,10 @@ bool MainPage::HandleBack() {
   }
   if (settingsPanel_.Visibility() == Visibility::Visible) {
     HideSettings();
+    return true;
+  }
+  if (extensionsPanel_.Visibility() == Visibility::Visible) {
+    HideExtensions();
     return true;
   }
   if (errorPanel_.Visibility() == Visibility::Visible) {

@@ -1368,8 +1368,8 @@ void MainPage::RefreshExtensionsList() {
       openButton.Padding(ThicknessHelper::FromLengths(12, 6, 12, 6));
       openButton.Margin(ThicknessHelper::FromLengths(0, 0, 6, 0));
       openButton.Click([this, id](IInspectable const&, RoutedEventArgs const&) {
-        NavigateTo(winrt::hstring(L"ms-appdata:///local/extensions/" + id +
-                                  L"/index.html"));
+        NavigateTo(winrt::hstring(L"ms-appdata:///local/extensions/" + id + L"/index.html"));
+        HideExtensions();
       });
       actions.Children().Append(openButton);
     }
@@ -1548,7 +1548,7 @@ bool MainPage::IsInternalScheme(winrt::hstring const& scheme) {
   return value == L"http" || value == L"https" || value == L"file" ||
          value == L"about" || value == L"data" || value == L"blob" ||
          value == L"ms-appx" || value == L"ms-appx-web" ||
-         value == L"ms-appdata";
+         value == L"ms-appdata" || value == L"ms-local-stream";
 }
 
 winrt::hstring MainPage::DescribeError(WebErrorStatus status) {

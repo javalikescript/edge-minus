@@ -897,6 +897,8 @@ winrt::fire_and_forget MainPage::AddExtensionAsync() {
     FileOpenPicker picker;
     picker.SuggestedStartLocation(PickerLocationId::Downloads);
     picker.FileTypeFilter().Append(L".zip");
+    picker.FileTypeFilter().Append(L".js");
+    picker.FileTypeFilter().Append(L".html");
 
     const StorageFile file = co_await picker.PickSingleFileAsync();
     if (!file) {
@@ -907,7 +909,7 @@ winrt::fire_and_forget MainPage::AddExtensionAsync() {
     statusText_.Visibility(Visibility::Visible);
     log::Write(L"extension: installing " + std::wstring(file.Name()));
 
-    const winrt::hstring id = co_await extensions::InstallFromZipAsync(file);
+    const winrt::hstring id = co_await extensions::InstallAsync(file);
     log::Write(L"extension: installed " + std::wstring(id));
     co_await extensions::Manager::Get().LoadAsync(std::wstring(id.c_str()));
     RefreshExtensionsList();
@@ -1249,18 +1251,39 @@ void MainPage::RefreshExtensionsList() {
     Grid::SetColumn(text, 0);
     row.Children().Append(text);
 
+    auto actions = StackPanel();
+    actions.Orientation(Orientation::Horizontal);
+    actions.VerticalAlignment(VerticalAlignment::Center);
+
+    const std::wstring id = extension.id;
+    if (extension.hasIndexHtml) {
+      auto openButton = Button();
+      openButton.Content(winrt::box_value(winrt::hstring(L"Open")));
+      openButton.Background(Brush(ButtonBg()));
+      openButton.Foreground(Brush(ChromeFg()));
+      openButton.BorderThickness(ThicknessHelper::FromUniformLength(0));
+      openButton.Padding(ThicknessHelper::FromLengths(12, 6, 12, 6));
+      openButton.Margin(ThicknessHelper::FromLengths(0, 0, 6, 0));
+      openButton.Click([this, id](IInspectable const&, RoutedEventArgs const&) {
+        NavigateTo(winrt::hstring(L"ms-appdata:///local/extensions/" + id +
+                                  L"/index.html"));
+      });
+      actions.Children().Append(openButton);
+    }
+
     auto removeButton = Button();
     removeButton.Content(winrt::box_value(winrt::hstring(L"Remove")));
     removeButton.Background(Brush(ButtonBg()));
     removeButton.Foreground(Brush(ChromeFg()));
     removeButton.BorderThickness(ThicknessHelper::FromUniformLength(0));
     removeButton.Padding(ThicknessHelper::FromLengths(12, 6, 12, 6));
-    const std::wstring id = extension.id;
     removeButton.Click([this, id](IInspectable const&, RoutedEventArgs const&) {
       RemoveExtensionAsync(id);
     });
-    Grid::SetColumn(removeButton, 1);
-    row.Children().Append(removeButton);
+    actions.Children().Append(removeButton);
+
+    Grid::SetColumn(actions, 1);
+    row.Children().Append(actions);
 
     extensionsList_.Children().Append(row);
   }

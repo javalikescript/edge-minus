@@ -10,11 +10,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <cwctype>
 #include <exception>
 #include <vector>
 
 using namespace winrt;
-using namespace winrt::Windows::Data::Json;
 using namespace winrt::Windows::Foundation;
 using namespace winrt::Windows::Storage;
 
@@ -22,8 +22,8 @@ namespace edgeminus::extensions {
 namespace {
 
 constexpr wchar_t kExtensionsFolderName[] = L"extensions";
-constexpr wchar_t kManifestFileName[] = L"manifest.json";
-constexpr wchar_t kBootFolderName[] = L"boot";
+constexpr wchar_t kUserscriptFileName[] = L"userscript.js";
+constexpr wchar_t kIndexFileName[] = L"index.html";
 constexpr uint64_t kMaxZipBytes = 64ull * 1024ull * 1024ull;
 constexpr uint64_t kMaxExtensionBytes = 64ull * 1024ull * 1024ull;
 constexpr size_t kMaxEntries = 4096;
@@ -180,28 +180,47 @@ void AddPattern(std::vector<std::wstring>& patterns, std::wstring value) {
   patterns.push_back(std::move(value));
 }
 
-void AppendPatternValue(IJsonValue const& value,
-                        std::vector<std::wstring>& patterns) {
-  if (!value) {
-    return;
-  }
-  if (value.ValueType() == JsonValueType::String) {
-    AddPattern(patterns, value.GetString().c_str());
-  } else if (value.ValueType() == JsonValueType::Array) {
-    const JsonArray array = value.GetArray();
-    for (uint32_t index = 0; index < array.Size(); ++index) {
-      AppendPatternValue(array.GetAt(index), patterns);
-    }
-  }
-}
-
-void AppendManifestPatterns(JsonObject const& manifest, wchar_t const* key,
+void ParseUserscriptMatches(std::wstring const& code,
                             std::vector<std::wstring>& patterns) {
-  const hstring name(key);
-  if (!manifest.HasKey(name)) {
-    return;
+  constexpr wchar_t kMatchTag[] = L"@match";
+  constexpr size_t kMatchTagLength = 6;
+
+  size_t start = 0;
+  while (start < code.size()) {
+    size_t end = code.find(L'\n', start);
+    if (end == std::wstring::npos) {
+      end = code.size();
+    }
+    std::wstring line = Trim(code.substr(start, end - start));
+    start = end + 1;
+    if (line.empty()) {
+      continue;
+    }
+
+    if (line.rfind(L"//", 0) == 0) {
+      line = Trim(line.substr(2));
+    } else if (line.rfind(L"/*", 0) == 0) {
+      line = Trim(line.substr(2));
+    } else if (line.front() == L'*') {
+      line = Trim(line.substr(1));
+    } else {
+      continue;
+    }
+
+    if (line.size() >= 2 && line.compare(line.size() - 2, 2, L"*/") == 0) {
+      line = Trim(line.substr(0, line.size() - 2));
+    }
+
+    if (line.size() < kMatchTagLength ||
+        _wcsnicmp(line.c_str(), kMatchTag, kMatchTagLength) != 0) {
+      continue;
+    }
+    if (line.size() > kMatchTagLength &&
+        !std::iswspace(line[kMatchTagLength])) {
+      continue;
+    }
+    AddPattern(patterns, Trim(line.substr(kMatchTagLength)));
   }
-  AppendPatternValue(manifest.GetNamedValue(name), patterns);
 }
 
 std::wstring MakeShortId() {
@@ -242,6 +261,58 @@ std::wstring DecodeEntryName(const char* bytes) {
   std::wstring result(static_cast<size_t>(needed), L'\0');
   MultiByteToWideChar(codePage, flags, bytes, byteCount, result.data(), needed);
   return result;
+}
+
+std::wstring DecodeText(std::vector<uint8_t> const& bytes) {
+  const size_t length = bytes.size();
+  if (length == 0) {
+    return {};
+  }
+
+  auto decode = [&bytes, length](UINT codePage, DWORD flags,
+                                 size_t offset) -> std::wstring {
+    if (offset >= length) {
+      return {};
+    }
+    const char* data = reinterpret_cast<const char*>(bytes.data() + offset);
+    const int byteCount = static_cast<int>(length - offset);
+    int needed = MultiByteToWideChar(codePage, flags, data, byteCount, nullptr, 0);
+    if (needed <= 0) {
+      return {};
+    }
+    std::wstring result(static_cast<size_t>(needed), L'\0');
+    MultiByteToWideChar(codePage, flags, data, byteCount, result.data(), needed);
+    return result;
+  };
+
+  if (length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE) {
+    const size_t units = (length - 2) / 2;
+    std::wstring result(units, L'\0');
+    if (units != 0) {
+      std::memcpy(result.data(), bytes.data() + 2, units * 2);
+    }
+    return result;
+  }
+  if (length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF) {
+    const size_t units = (length - 2) / 2;
+    std::wstring result(units, L'\0');
+    for (size_t index = 0; index < units; ++index) {
+      result[index] = static_cast<wchar_t>((bytes[2 + index * 2] << 8) |
+                                           bytes[3 + index * 2]);
+    }
+    return result;
+  }
+
+  size_t offset = 0;
+  if (length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB &&
+      bytes[2] == 0xBF) {
+    offset = 3;
+  }
+  std::wstring text = decode(CP_UTF8, MB_ERR_INVALID_CHARS, offset);
+  if (!text.empty() || length == offset) {
+    return text;
+  }
+  return decode(CP_ACP, 0, offset);
 }
 
 std::wstring NormalizeEntryPath(std::wstring const& raw) {
@@ -337,7 +408,6 @@ void ValidateArchive(mz_zip_archive& archive) {
   }
 
   uint64_t totalBytes = 0;
-  bool hasManifest = false;
 
   for (mz_uint index = 0; index < count; ++index) {
     mz_zip_archive_file_stat stat{};
@@ -367,13 +437,6 @@ void ValidateArchive(mz_zip_archive& archive) {
     }
 
     totalBytes += stat.m_uncomp_size;
-    if (_wcsicmp(path.c_str(), kManifestFileName) == 0) {
-      hasManifest = true;
-    }
-  }
-
-  if (!hasManifest) {
-    Fail(L"The zip must contain manifest.json at its root.");
   }
 }
 
@@ -398,6 +461,35 @@ IAsyncOperation<StorageFolder> EnsureFolderAsync(StorageFolder root,
   co_return current;
 }
 
+IAsyncOperation<StorageFolder> CreateDestinationAsync(std::wstring& id) {
+  const StorageFolder localFolder = ApplicationData::Current().LocalFolder();
+  const StorageFolder extensionsFolder = co_await localFolder.CreateFolderAsync(
+      kExtensionsFolderName, CreationCollisionOption::OpenIfExists);
+
+  StorageFolder destination{nullptr};
+  for (int attempt = 0; attempt < 5 && !destination; ++attempt) {
+    id = MakeShortId();
+    try {
+      destination = co_await extensionsFolder.CreateFolderAsync(
+          hstring(id), CreationCollisionOption::FailIfExists);
+    } catch (hresult_error const&) {
+    }
+  }
+  if (!destination) {
+    Fail(L"Could not create a folder for the extension.");
+  }
+  co_return destination;
+}
+
+IAsyncOperation<hstring> ReadTextFileAsync(StorageFile const& file) {
+  const auto buffer = co_await FileIO::ReadBufferAsync(file);
+  std::vector<uint8_t> bytes(buffer.Length());
+  if (!bytes.empty()) {
+    std::memcpy(bytes.data(), buffer.data(), bytes.size());
+  }
+  co_return hstring(DecodeText(bytes));
+}
+
 }  // namespace
 
 Manager& Manager::Get() {
@@ -419,59 +511,32 @@ IAsyncAction Manager::ReadExtensionAsync(StorageFolder folder,
                                          Extension& extension) const {
   extension = {};
   extension.id = folder.Name().c_str();
-  log::Write(L"extensions: reading manifest for " + extension.id);
+  log::Write(L"extensions: reading " + extension.id);
 
-  const IStorageItem manifestItem =
-      co_await folder.TryGetItemAsync(hstring(kManifestFileName));
-  const StorageFile manifestFile =
-      manifestItem ? manifestItem.try_as<StorageFile>() : nullptr;
-  if (!manifestFile) {
-    log::Write(L"extensions: " + extension.id + L" has no manifest");
-    co_return;
-  }
-
-  const hstring manifestText = co_await FileIO::ReadTextAsync(manifestFile);
-  const JsonObject manifest = JsonObject::Parse(manifestText);
-
-  AppendManifestPatterns(manifest, L"matches", extension.patterns);
-  AppendManifestPatterns(manifest, L"patterns", extension.patterns);
-  AppendManifestPatterns(manifest, L"pattern", extension.patterns);
-  AppendManifestPatterns(manifest, L"urlPatterns", extension.patterns);
-  log::Write(L"extensions: " + extension.id + L" has " +
-             std::to_wstring(extension.patterns.size()) + L" patterns");
-
-  if (extension.patterns.empty()) {
-    co_return;
-  }
-
-  const IStorageItem bootItem =
-      co_await folder.TryGetItemAsync(hstring(kBootFolderName));
-  const StorageFolder bootFolder =
-      bootItem ? bootItem.try_as<StorageFolder>() : nullptr;
-  if (!bootFolder) {
-    log::Write(L"extensions: " + extension.id + L" has no boot folder");
-    co_return;
-  }
-
-  std::vector<StorageFile> scripts;
-  for (StorageFile const& file : co_await bootFolder.GetFilesAsync()) {
-    if (EndsWithIgnoreCase(std::wstring(file.Name().c_str()), L".js")) {
-      scripts.push_back(file);
+  const IStorageItem scriptItem =
+      co_await folder.TryGetItemAsync(hstring(kUserscriptFileName));
+  const StorageFile scriptFile =
+      scriptItem ? scriptItem.try_as<StorageFile>() : nullptr;
+  if (scriptFile) {
+    extension.hasUserscript = true;
+    try {
+      const hstring code = co_await ReadTextFileAsync(scriptFile);
+      extension.script = code.c_str();
+    } catch (hresult_error const& error) {
+      log::Write(L"extensions: " + extension.id + L" script read failed " +
+                 std::wstring(error.message()));
     }
+    ParseUserscriptMatches(extension.script, extension.patterns);
+    log::Write(L"extensions: " + extension.id + L" has " +
+               std::to_wstring(extension.patterns.size()) + L" patterns");
   }
-  std::sort(scripts.begin(), scripts.end(),
-            [](StorageFile const& left, StorageFile const& right) {
-              return _wcsicmp(left.Name().c_str(), right.Name().c_str()) < 0;
-            });
 
-  for (StorageFile const& file : scripts) {
-    const hstring code = co_await FileIO::ReadTextAsync(file);
-    if (!code.empty()) {
-      extension.bootScripts.emplace_back(code.c_str());
-    }
+  const IStorageItem indexItem =
+      co_await folder.TryGetItemAsync(hstring(kIndexFileName));
+  extension.hasIndexHtml = indexItem && indexItem.try_as<StorageFile>();
+  if (extension.hasIndexHtml) {
+    log::Write(L"extensions: " + extension.id + L" has index.html");
   }
-  log::Write(L"extensions: " + extension.id + L" has " +
-             std::to_wstring(extension.bootScripts.size()) + L" boot scripts");
 }
 
 IAsyncAction Manager::LoadAllAsync() {
@@ -498,8 +563,11 @@ IAsyncAction Manager::LoadAllAsync() {
       try {
         Extension extension;
         co_await ReadExtensionAsync(folder, extension);
-        if (!extension.patterns.empty()) {
+        if (extension.hasUserscript || extension.hasIndexHtml) {
           loaded.push_back(std::move(extension));
+        } else {
+          log::Write(L"extensions: " + extension.id +
+                     L" has no userscript or index.html");
         }
       } catch (hresult_error const& error) {
         log::Write(L"extensions: read failed " +
@@ -542,8 +610,11 @@ IAsyncAction Manager::LoadAsync(std::wstring const& id) {
     }
     Extension extension;
     co_await ReadExtensionAsync(extensionFolder, extension);
-    if (!extension.patterns.empty()) {
+    if (extension.hasUserscript || extension.hasIndexHtml) {
       Store(std::move(extension));
+    } else {
+      log::Write(L"extensions: " + extension.id +
+                 L" has no userscript or index.html");
     }
   } catch (hresult_error const& error) {
     log::Write(L"extensions: load failed " + id + L" " +
@@ -592,14 +663,14 @@ IAsyncAction Manager::RemoveAsync(std::wstring const& id) {
 std::wstring Manager::BuildInjectionScript(std::wstring const& url) const {
   std::wstring script;
   for (auto const& extension : extensions_) {
-    bool matched = false;
+    bool matched = extension.patterns.empty();
     for (auto const& pattern : extension.patterns) {
       if (MatchesUrl(pattern, url)) {
         matched = true;
         break;
       }
     }
-    if (!matched || extension.bootScripts.empty()) {
+    if (!matched || extension.script.empty()) {
       continue;
     }
 
@@ -610,11 +681,9 @@ std::wstring Manager::BuildInjectionScript(std::wstring const& url) const {
     script +=
         L"(window.__edgeMinusBooted=window.__edgeMinusBooted||{})[extensionId]"
         L"=true;\n";
-    for (auto const& code : extension.bootScripts) {
-      script += code;
-      if (code.empty() || code.back() != L'\n') {
-        script += L'\n';
-      }
+    script += extension.script;
+    if (extension.script.back() != L'\n') {
+      script += L'\n';
     }
     script += L"\n})(";
     script += JsString(extension.id);
@@ -670,7 +739,9 @@ bool MatchesUrl(std::wstring const& pattern, std::wstring const& url) {
   return WildcardMatch(pathPattern, path, false);
 }
 
-IAsyncOperation<hstring> InstallFromZipAsync(StorageFile const& zipFile) {
+namespace {
+
+IAsyncOperation<hstring> InstallZipAsync(StorageFile const& zipFile) {
   log::Write(L"extension: reading zip");
   const auto buffer = co_await FileIO::ReadBufferAsync(zipFile);
   log::Write(L"extension: zip bytes " +
@@ -689,24 +760,8 @@ IAsyncOperation<hstring> InstallFromZipAsync(StorageFile const& zipFile) {
   ValidateArchive(archive);
   log::Write(L"extension: zip validated");
 
-  const StorageFolder localFolder = ApplicationData::Current().LocalFolder();
-  const StorageFolder extensionsFolder = co_await localFolder.CreateFolderAsync(
-      kExtensionsFolderName, CreationCollisionOption::OpenIfExists);
-  log::Write(L"extension: extensions folder ready");
-
-  StorageFolder destination{nullptr};
   std::wstring id;
-  for (int attempt = 0; attempt < 5 && !destination; ++attempt) {
-    id = MakeShortId();
-    try {
-      destination = co_await extensionsFolder.CreateFolderAsync(
-          hstring(id), CreationCollisionOption::FailIfExists);
-    } catch (hresult_error const&) {
-    }
-  }
-  if (!destination) {
-    Fail(L"Could not create a folder for the extension.");
-  }
+  const StorageFolder destination = co_await CreateDestinationAsync(id);
   log::Write(L"extension: destination " + id);
 
   std::exception_ptr failure;
@@ -757,6 +812,61 @@ IAsyncOperation<hstring> InstallFromZipAsync(StorageFile const& zipFile) {
         co_await FileIO::WriteBytesAsync(file, data);
       }
       log::Write(L"extension: wrote " + path);
+    }
+  } catch (...) {
+    failure = std::current_exception();
+  }
+
+  if (failure) {
+    log::Write(L"extension: install failed, cleaning up");
+    co_await destination.DeleteAsync(StorageDeleteOption::PermanentDelete);
+    std::rethrow_exception(failure);
+  }
+
+  log::Write(L"extension: install complete " + id);
+  co_return hstring(id);
+}
+
+}  // namespace
+
+IAsyncOperation<hstring> InstallAsync(StorageFile const& file) {
+  const std::wstring fileName = file.Name().c_str();
+  if (EndsWithIgnoreCase(fileName, L".zip")) {
+    const hstring id = co_await InstallZipAsync(file);
+    co_return id;
+  }
+
+  std::wstring targetName;
+  if (EndsWithIgnoreCase(fileName, L".js")) {
+    targetName = kUserscriptFileName;
+  } else if (EndsWithIgnoreCase(fileName, L".html") ||
+             EndsWithIgnoreCase(fileName, L".htm")) {
+    targetName = kIndexFileName;
+  } else {
+    Fail(L"Only .zip, .js or .html extension files are supported.");
+  }
+
+  log::Write(L"extension: reading " + fileName);
+  const auto buffer = co_await FileIO::ReadBufferAsync(file);
+  if (buffer.Length() > kMaxExtensionBytes) {
+    Fail(L"The extension file is too large.");
+  }
+
+  std::vector<uint8_t> bytes(buffer.Length());
+  if (!bytes.empty()) {
+    std::memcpy(bytes.data(), buffer.data(), bytes.size());
+  }
+
+  std::wstring id;
+  const StorageFolder destination = co_await CreateDestinationAsync(id);
+  log::Write(L"extension: destination " + id);
+
+  std::exception_ptr failure;
+  try {
+    const StorageFile target = co_await destination.CreateFileAsync(
+        hstring(targetName), CreationCollisionOption::ReplaceExisting);
+    if (!bytes.empty()) {
+      co_await FileIO::WriteBytesAsync(target, bytes);
     }
   } catch (...) {
     failure = std::current_exception();

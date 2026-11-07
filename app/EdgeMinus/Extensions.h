@@ -9,7 +9,9 @@ namespace edgeminus::extensions {
 struct Extension {
   std::wstring id;
   std::vector<std::wstring> patterns;
-  std::vector<std::wstring> bootScripts;
+  std::wstring script;
+  bool hasUserscript = false;
+  bool hasIndexHtml = false;
 };
 
 class Manager {
@@ -34,8 +36,8 @@ class Manager {
   std::vector<Extension> extensions_;
 };
 
-winrt::Windows::Foundation::IAsyncOperation<winrt::hstring> InstallFromZipAsync(
-    winrt::Windows::Storage::StorageFile const& zipFile);
+winrt::Windows::Foundation::IAsyncOperation<winrt::hstring> InstallAsync(
+    winrt::Windows::Storage::StorageFile const& file);
 
 bool MatchesUrl(std::wstring const& pattern, std::wstring const& url);
 

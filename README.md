@@ -19,6 +19,14 @@ package.
 - Dark phone status bar and browser chrome.
 - A small log at `LocalState\edgeminus.log` for diagnosing startup problems.
 
+## Extensions
+
+The app allows adding extensions by selecting a file.
+
+- a Javascript file is install as a userscript extension and loaded on each page
+- an HTML file is install as a local app that can be access through the browser
+- a Zip file is deployed as it is, it can contains `userscript.js`, `index.html`
+
 ## Build target
 
 | Item | Value |
@@ -118,6 +126,8 @@ output\appx\EdgeMinus_1.0.0.0_<Platform>.appx
 The certificate subject is `CN=EdgeMinus`, matching the manifest publisher. If
 you change the publisher, regenerate the certificate or update the script and
 manifest together.
+
+You could also use the Windows Device Portal in dev mode.
 
 ## Project layout
 

@@ -547,8 +547,12 @@ void MainPage::BuildExtensionsPanel() {
   Grid::SetColumn(title, 0);
   header.Children().Append(title);
 
+  // auto closeIcon = FontIcon();
+  // closeIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
+  // closeIcon.Glyph(L"\uE8BB");
   auto closeButton = Button();
   closeButton.Content(winrt::box_value(winrt::hstring(L"Close")));
+  // closeButton.Content(closeIcon);
   closeButton.Background(Brush(ButtonBg()));
   closeButton.Foreground(Brush(ChromeFg()));
   closeButton.BorderThickness(ThicknessHelper::FromUniformLength(0));
@@ -576,8 +580,12 @@ void MainPage::BuildExtensionsPanel() {
   actions.Orientation(Orientation::Horizontal);
   actions.HorizontalAlignment(HorizontalAlignment::Right);
 
+  // auto addIcon = FontIcon();
+  // addIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
+  // addIcon.Glyph(L"\uE710");
   auto addButton = Button();
   addButton.Content(winrt::box_value(winrt::hstring(L"Add extension")));
+  // addButton.Content(addIcon);
   addButton.Background(Brush(Accent()));
   addButton.Foreground(Brush(ChromeFg()));
   addButton.BorderThickness(ThicknessHelper::FromUniformLength(0));
@@ -696,22 +704,34 @@ void MainPage::WireEvents() {
 
   menu.Items().Append(MenuFlyoutSeparator());
 
+  auto extensionsIcon = FontIcon();
+  extensionsIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
+  extensionsIcon.Glyph(L"\uE71D");
   auto extensionsItem = MenuFlyoutItem();
   extensionsItem.Text(L"Extensions");
+  extensionsItem.Icon(extensionsIcon);
   extensionsItem.Click([this](IInspectable const&, RoutedEventArgs const&) {
     ShowExtensions();
   });
   menu.Items().Append(extensionsItem);
 
+  auto settingsIcon = FontIcon();
+  settingsIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
+  settingsIcon.Glyph(L"\uE713");
   auto settingsItem = MenuFlyoutItem();
   settingsItem.Text(L"Settings");
+  settingsItem.Icon(settingsIcon);
   settingsItem.Click([this](IInspectable const&, RoutedEventArgs const&) {
     ShowSettings();
   });
   menu.Items().Append(settingsItem);
 
+  auto pinIcon = FontIcon();
+  pinIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
+  pinIcon.Glyph(L"\uE718");
   auto pinItem = MenuFlyoutItem();
   pinItem.Text(L"Pin to start screen");
+  pinItem.Icon(pinIcon);
   pinItem.Click([this](IInspectable const&, RoutedEventArgs const&) {
     PinCurrentPage();
   });
@@ -1360,8 +1380,12 @@ void MainPage::RefreshExtensionsList() {
 
     const std::wstring id = extension.id;
     if (extension.hasIndexHtml) {
+      auto openIcon = FontIcon();
+      openIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
+      openIcon.Glyph(L"\uE8A7");
       auto openButton = Button();
-      openButton.Content(winrt::box_value(winrt::hstring(L"Open")));
+      //openButton.Content(winrt::box_value(winrt::hstring(L"Open")));
+      openButton.Content(openIcon);
       openButton.Background(Brush(ButtonBg()));
       openButton.Foreground(Brush(ChromeFg()));
       openButton.BorderThickness(ThicknessHelper::FromUniformLength(0));
@@ -1374,8 +1398,12 @@ void MainPage::RefreshExtensionsList() {
       actions.Children().Append(openButton);
     }
 
+    auto removeIcon = FontIcon();
+    removeIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
+    removeIcon.Glyph(L"\uE74D");
     auto removeButton = Button();
-    removeButton.Content(winrt::box_value(winrt::hstring(L"Remove")));
+    //removeButton.Content(winrt::box_value(winrt::hstring(L"Remove")));
+    removeButton.Content(removeIcon);
     removeButton.Background(Brush(ButtonBg()));
     removeButton.Foreground(Brush(ChromeFg()));
     removeButton.BorderThickness(ThicknessHelper::FromUniformLength(0));

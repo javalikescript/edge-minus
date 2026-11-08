@@ -37,11 +37,16 @@ SolidColorBrush Brush(Color color) {
   return brush;
 }
 
-Button MakeGlyphButton(std::wstring_view glyph) {
+FontIcon MakeGlyphIcon(std::wstring_view glyph) {
   FontIcon icon;
   icon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
-  icon.FontSize(17);
   icon.Glyph(winrt::hstring(glyph));
+  return icon;
+}
+
+Button MakeGlyphButton(std::wstring_view glyph) {
+  auto icon = MakeGlyphIcon(glyph);
+  icon.FontSize(17);
   icon.Foreground(Brush(ChromeFg()));
 
   Button button;
@@ -676,9 +681,7 @@ void MainPage::WireEvents() {
 
   auto menu = MenuFlyout();
 
-  auto backIcon = FontIcon();
-  backIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
-  backIcon.Glyph(L"\uE72B");
+  auto backIcon = MakeGlyphIcon(L"\uE72B");
   backItem_ = MenuFlyoutItem();
   backItem_.Text(L"Back");
   backItem_.Icon(backIcon);
@@ -689,9 +692,7 @@ void MainPage::WireEvents() {
   });
   menu.Items().Append(backItem_);
 
-  auto forwardIcon = FontIcon();
-  forwardIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
-  forwardIcon.Glyph(L"\uE72A");
+  auto forwardIcon = MakeGlyphIcon(L"\uE72A");
   forwardItem_ = MenuFlyoutItem();
   forwardItem_.Text(L"Forward");
   forwardItem_.Icon(forwardIcon);
@@ -704,9 +705,7 @@ void MainPage::WireEvents() {
 
   menu.Items().Append(MenuFlyoutSeparator());
 
-  auto extensionsIcon = FontIcon();
-  extensionsIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
-  extensionsIcon.Glyph(L"\uE71D");
+  auto extensionsIcon = MakeGlyphIcon(L"\uE71D");
   auto extensionsItem = MenuFlyoutItem();
   extensionsItem.Text(L"Extensions");
   extensionsItem.Icon(extensionsIcon);
@@ -715,9 +714,7 @@ void MainPage::WireEvents() {
   });
   menu.Items().Append(extensionsItem);
 
-  auto settingsIcon = FontIcon();
-  settingsIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
-  settingsIcon.Glyph(L"\uE713");
+  auto settingsIcon = MakeGlyphIcon(L"\uE713");
   auto settingsItem = MenuFlyoutItem();
   settingsItem.Text(L"Settings");
   settingsItem.Icon(settingsIcon);
@@ -726,9 +723,7 @@ void MainPage::WireEvents() {
   });
   menu.Items().Append(settingsItem);
 
-  auto pinIcon = FontIcon();
-  pinIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
-  pinIcon.Glyph(L"\uE718");
+  auto pinIcon = MakeGlyphIcon(L"\uE718");
   auto pinItem = MenuFlyoutItem();
   pinItem.Text(L"Pin to start screen");
   pinItem.Icon(pinIcon);
@@ -1380,9 +1375,7 @@ void MainPage::RefreshExtensionsList() {
 
     const std::wstring id = extension.id;
     if (extension.hasIndexHtml) {
-      auto openIcon = FontIcon();
-      openIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
-      openIcon.Glyph(L"\uE8A7");
+      auto openIcon = MakeGlyphIcon(L"\uE8A7");
       auto openButton = Button();
       //openButton.Content(winrt::box_value(winrt::hstring(L"Open")));
       openButton.Content(openIcon);
@@ -1398,9 +1391,7 @@ void MainPage::RefreshExtensionsList() {
       actions.Children().Append(openButton);
     }
 
-    auto removeIcon = FontIcon();
-    removeIcon.FontFamily(FontFamily(L"Segoe MDL2 Assets"));
-    removeIcon.Glyph(L"\uE74D");
+    auto removeIcon = MakeGlyphIcon(L"\uE74D");
     auto removeButton = Button();
     //removeButton.Content(winrt::box_value(winrt::hstring(L"Remove")));
     removeButton.Content(removeIcon);

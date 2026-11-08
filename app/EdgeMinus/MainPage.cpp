@@ -1,5 +1,7 @@
 #include "pch.h"
 
+#include <urlmon.h>
+
 #include "Extensions.h"
 #include "MainPage.h"
 
@@ -129,28 +131,8 @@ bool IsCheckBoxChecked(CheckBox const& box) {
 constexpr DWORD kUrlMonOptionUserAgent = 0x10000001;
 constexpr DWORD kUrlMonOptionUserAgentRefresh = 0x10000002;
 
-using UrlMkSetSessionOptionFn = HRESULT(WINAPI*)(DWORD, LPCSTR, DWORD, DWORD);
-
-UrlMkSetSessionOptionFn LoadUrlMkSetSessionOption() {
-  static UrlMkSetSessionOptionFn setSessionOption = [] {
-    HMODULE urlmon = LoadLibraryW(L"urlmon.dll");
-    if (!urlmon) {
-      return static_cast<UrlMkSetSessionOptionFn>(nullptr);
-    }
-    return reinterpret_cast<UrlMkSetSessionOptionFn>(
-        GetProcAddress(urlmon, "UrlMkSetSessionOption"));
-  }();
-  return setSessionOption;
-}
-
 void SetDefaultUserAgent(std::wstring const& userAgent) {
-  const UrlMkSetSessionOptionFn setSessionOption = LoadUrlMkSetSessionOption();
-  if (!setSessionOption) {
-    log::Write(L"main: UrlMkSetSessionOption unavailable");
-    return;
-  }
-
-  setSessionOption(kUrlMonOptionUserAgentRefresh, nullptr, 0, 0);
+  UrlMkSetSessionOption(kUrlMonOptionUserAgentRefresh, nullptr, 0, 0);
   if (userAgent.empty()) {
     log::Write(L"main: user agent reset to default");
     return;
@@ -168,8 +150,8 @@ void SetDefaultUserAgent(std::wstring const& userAgent) {
   WideCharToMultiByte(CP_ACP, 0, userAgent.c_str(), wideLength, &narrow[0],
                       byteLength, nullptr, nullptr);
   const HRESULT hr =
-      setSessionOption(kUrlMonOptionUserAgent, narrow.c_str(),
-                       static_cast<DWORD>(narrow.size()), 0);
+      UrlMkSetSessionOption(kUrlMonOptionUserAgent, narrow.data(),
+                            static_cast<DWORD>(narrow.size()), 0);
   log::Write(L"main: user agent set hr=" +
              std::to_wstring(static_cast<long>(hr)));
 }

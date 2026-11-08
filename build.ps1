@@ -41,10 +41,10 @@ if (-not $WindowsTargetPlatformVersion) {
   }
   $preferred = $sdks | Where-Object { $_.Name -eq "10.0.15254.0" } | Select-Object -First 1
   if (-not $preferred) {
-    $preferred = $sdks | Where-Object { $_.Name -eq "10.0.19041.0" } | Select-Object -First 1
+    $preferred = $sdks | Where-Object { $_.Name -eq "10.0.22621.0" } | Select-Object -First 1
   }
   if (-not $preferred) {
-    $preferred = $sdks | Where-Object { $_.Name -eq "10.0.22621.0" } | Select-Object -First 1
+    $preferred = $sdks | Where-Object { $_.Name -eq "10.0.19041.0" } | Select-Object -First 1
   }
   if (-not $preferred) {
     $preferred = $sdks | Select-Object -First 1

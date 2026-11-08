@@ -29,8 +29,21 @@ struct App
   std::shared_ptr<MainPage> page_;
 
   App() {
+    bool logsEnabled = false;
     try {
-      log::Init(std::wstring(ApplicationData::Current().LocalFolder().Path()));
+      auto values = ApplicationData::Current().LocalSettings().Values();
+      auto value = values.TryLookup(winrt::hstring(log::kEnabledSettingKey));
+      if (value) {
+        logsEnabled =
+            winrt::unbox_value_or<winrt::hstring>(value, winrt::hstring()) ==
+            L"1";
+      }
+    } catch (...) {
+    }
+
+    try {
+      log::Init(std::wstring(ApplicationData::Current().LocalFolder().Path()),
+                logsEnabled);
       log::Write(L"app: starting");
     } catch (...) {
     }

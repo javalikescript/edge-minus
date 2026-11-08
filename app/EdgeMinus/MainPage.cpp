@@ -111,6 +111,17 @@ void StoreSetting(std::wstring_view key, std::wstring const& value) {
   }
 }
 
+void SetCheckBoxChecked(CheckBox const& box, bool checked) {
+  box.IsChecked(
+      winrt::box_value(checked)
+          .as<winrt::Windows::Foundation::IReference<bool>>());
+}
+
+bool IsCheckBoxChecked(CheckBox const& box) {
+  const auto value = box.IsChecked();
+  return value ? value.Value() : false;
+}
+
 // Set the process-wide default user agent used by the WebView engine.
 // Mirrors UrlMkSetSessionOption(URLMON_OPTION_USERAGENT) as used by WUT so the
 // value also applies to links, redirects and script navigations, not just the
@@ -503,21 +514,39 @@ void MainPage::BuildSettingsPanel() {
   updateHint.Margin(ThicknessHelper::FromLengths(0, 4, 0, 20));
   stack.Children().Append(updateHint);
 
+  logsCheckBox_ = CheckBox();
+  logsCheckBox_.Content(winrt::box_value(winrt::hstring(L"Enable logging")));
+  logsCheckBox_.FontSize(14);
+  logsCheckBox_.Foreground(Brush(ChromeFg()));
+  logsCheckBox_.IsThreeState(false);
+  stack.Children().Append(logsCheckBox_);
+
+  auto logsHint = TextBlock();
+  logsHint.Text(
+      L"Writes diagnostics to a log file in the app's local folder. Disabled "
+      L"by default.");
+  logsHint.FontSize(11);
+  logsHint.Foreground(Brush(MutedFg()));
+  logsHint.TextWrapping(TextWrapping::Wrap);
+  logsHint.Margin(ThicknessHelper::FromLengths(0, 4, 0, 20));
+  stack.Children().Append(logsHint);
+
   auto tools = StackPanel();
   tools.Orientation(Orientation::Horizontal);
   tools.Margin(ThicknessHelper::FromLengths(0, 0, 0, 20));
 
-  auto logsButton = Button();
-  logsButton.Content(winrt::box_value(winrt::hstring(L"View logs")));
-  logsButton.Background(Brush(ButtonBg()));
-  logsButton.Foreground(Brush(ChromeFg()));
-  logsButton.BorderThickness(ThicknessHelper::FromUniformLength(0));
-  logsButton.Padding(ThicknessHelper::FromLengths(18, 8, 18, 8));
-  logsButton.Margin(ThicknessHelper::FromLengths(0, 0, 8, 0));
-  logsButton.Click([this](IInspectable const&, RoutedEventArgs const&) {
+  logsButton_ = Button();
+  logsButton_.Content(winrt::box_value(winrt::hstring(L"View logs")));
+  logsButton_.Background(Brush(ButtonBg()));
+  logsButton_.Foreground(Brush(ChromeFg()));
+  logsButton_.BorderThickness(ThicknessHelper::FromUniformLength(0));
+  logsButton_.Padding(ThicknessHelper::FromLengths(18, 8, 18, 8));
+  logsButton_.Margin(ThicknessHelper::FromLengths(0, 0, 8, 0));
+  logsButton_.IsEnabled(false);
+  logsButton_.Click([this](IInspectable const&, RoutedEventArgs const&) {
     ShowLogs();
   });
-  tools.Children().Append(logsButton);
+  tools.Children().Append(logsButton_);
 
   auto updateButton = Button();
   updateButton.Content(winrt::box_value(winrt::hstring(L"Check for updates")));
@@ -1090,6 +1119,9 @@ void MainPage::ShowSettings() {
   userAgentBox_.Text(winrt::hstring(LoadSetting(kUserAgentKey)));
   std::wstring updateUrl = LoadSetting(kUpdateUrlKey);
   updateUrlBox_.Text(winrt::hstring(updateUrl));
+  const bool logsEnabled = LoadSetting(log::kEnabledSettingKey) == L"1";
+  SetCheckBoxChecked(logsCheckBox_, logsEnabled);
+  logsButton_.IsEnabled(logsEnabled);
   RefreshExtensionsList();
   web_.Visibility(Visibility::Collapsed);
   settingsPanel_.Visibility(Visibility::Visible);
@@ -1116,6 +1148,9 @@ void MainPage::HideExtensions() {
 }
 
 void MainPage::ShowLogs() {
+  if (!log::Enabled()) {
+    return;
+  }
   const std::wstring text = log::Read();
   logsText_.Text(text.empty() ? winrt::hstring(L"No log entries yet.")
                               : winrt::hstring(text));
@@ -1137,13 +1172,18 @@ void MainPage::SaveSettings() {
   const std::wstring home = Trim(std::wstring(homeBox_.Text()));
   const std::wstring userAgent = Trim(std::wstring(userAgentBox_.Text()));
   const std::wstring updateUrl = Trim(std::wstring(updateUrlBox_.Text()));
+  const bool logsEnabled = IsCheckBoxChecked(logsCheckBox_);
   const bool defaultSearch = search.empty() || search == kDefaultSearchUrl;
   const bool defaultHome = home.empty() || home == kDefaultHomeUrl;
   StoreSetting(kSearchUrlKey, defaultSearch ? std::wstring() : search);
   StoreSetting(kHomeUrlKey, defaultHome ? std::wstring() : home);
   StoreSetting(kUserAgentKey, userAgent);
   StoreSetting(kUpdateUrlKey, updateUrl);
+  StoreSetting(log::kEnabledSettingKey,
+               logsEnabled ? std::wstring(L"1") : std::wstring());
   SetDefaultUserAgent(userAgent);
+  log::SetEnabled(logsEnabled);
+  logsButton_.IsEnabled(logsEnabled);
   log::Write(L"main: settings saved");
   HideSettings();
   if (userAgent != previousUserAgent && !currentUrl_.empty()) {

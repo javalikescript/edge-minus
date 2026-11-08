@@ -77,9 +77,11 @@ class MainPage {
   winrt::Windows::UI::Xaml::Controls::TextBox homeBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBox userAgentBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBox updateUrlBox_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::CheckBox logsCheckBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::StackPanel extensionsList_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Border extensionsPanel_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Border logsPanel_{nullptr};
+  winrt::Windows::UI::Xaml::Controls::Button logsButton_{nullptr};
   winrt::Windows::UI::Xaml::Controls::ScrollViewer logsScroll_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBlock logsText_{nullptr};
 

@@ -23,9 +23,9 @@ package.
 
 The app allows adding extensions by selecting a file.
 
-- a Javascript file is install as a userscript extension and loaded on each page
-- an HTML file is install as a local app that can be access through the browser
-- a Zip file is deployed as it is, it can contains `userscript.js`, `index.html`
+- a Javascript file is install as a userscript extension and loaded on each page.
+- an HTML file is install as a local app that can be access through the browser.
+- a Zip file is deployed as it is, it should contain at least a `userscript.js` or `index.html` file.
 
 ## Build target
 
@@ -128,20 +128,6 @@ you change the publisher, regenerate the certificate or update the script and
 manifest together.
 
 You could also use the Windows Device Portal in dev mode.
-
-## Project layout
-
-```text
-app/EdgeMinus.sln                 Visual Studio solution
-app/EdgeMinus/EdgeMinus.vcxproj    UWP C++/WinRT project
-app/EdgeMinus/App.cpp             Application entry point and activation
-app/EdgeMinus/MainPage.h/.cpp     Browser UI and WebView logic
-app/EdgeMinus/Log.h/.cpp          LocalState file logger
-app/EdgeMinus/Package.appxmanifest
-app/EdgeMinus/Assets/             Tile and splash images
-build.ps1                        Build, certificate and packaging script
-build.bat                        cmd.exe wrapper for build.ps1
-```
 
 ## Notes and limitations
 

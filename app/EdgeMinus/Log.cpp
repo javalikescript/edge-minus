@@ -8,17 +8,50 @@ namespace {
 std::mutex g_mutex;
 FILE* g_file = nullptr;
 std::wstring g_path;
+bool g_enabled = false;
 
-}  // namespace
-
-void Init(std::wstring const& localStateFolder) {
-  std::lock_guard<std::mutex> lock(g_mutex);
+void CloseFile() {
   if (g_file) {
     std::fclose(g_file);
     g_file = nullptr;
   }
+}
+
+void OpenFile(bool truncate) {
+  if (g_path.empty()) {
+    return;
+  }
+  _wfopen_s(&g_file, g_path.c_str(),
+            truncate ? L"w, ccs=UTF-8" : L"a, ccs=UTF-8");
+}
+
+}  // namespace
+
+void Init(std::wstring const& localStateFolder, bool enabled) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  CloseFile();
   g_path = localStateFolder + L"\\edgeminus.log";
-  _wfopen_s(&g_file, g_path.c_str(), L"w, ccs=UTF-8");
+  g_enabled = enabled;
+  if (g_enabled) {
+    OpenFile(true);
+  }
+}
+
+void SetEnabled(bool enabled) {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  if (g_enabled == enabled) {
+    return;
+  }
+  CloseFile();
+  g_enabled = enabled;
+  if (g_enabled) {
+    OpenFile(true);
+  }
+}
+
+bool Enabled() {
+  std::lock_guard<std::mutex> lock(g_mutex);
+  return g_enabled;
 }
 
 void Write(std::wstring const& line) {
@@ -35,13 +68,10 @@ void Write(std::wstring const& line) {
 
 std::wstring Read() {
   std::lock_guard<std::mutex> lock(g_mutex);
-  if (g_path.empty()) {
+  if (g_path.empty() || !g_enabled) {
     return {};
   }
-  if (g_file) {
-    std::fclose(g_file);
-    g_file = nullptr;
-  }
+  CloseFile();
 
   std::wstring text = {};
   FILE* file = nullptr;
@@ -58,7 +88,7 @@ std::wstring Read() {
     }
   }
 
-  _wfopen_s(&g_file, g_path.c_str(), L"a, ccs=UTF-8");
+  OpenFile(false);
   return text;
 }
 

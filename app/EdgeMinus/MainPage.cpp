@@ -1089,9 +1089,6 @@ void MainPage::ShowSettings() {
   homeBox_.Text(winrt::hstring(home));
   userAgentBox_.Text(winrt::hstring(LoadSetting(kUserAgentKey)));
   std::wstring updateUrl = LoadSetting(kUpdateUrlKey);
-  if (updateUrl.empty()) {
-    updateUrl = L"http://192.168.0.40/tmp/EdgeMinus_1.0.0.0_ARM.appx";
-  }
   updateUrlBox_.Text(winrt::hstring(updateUrl));
   RefreshExtensionsList();
   web_.Visibility(Visibility::Collapsed);

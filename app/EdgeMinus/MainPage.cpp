@@ -78,9 +78,9 @@ constexpr wchar_t kSearchUrlKey[] = L"searchUrl";
 constexpr wchar_t kUserAgentKey[] = L"userAgent";
 constexpr wchar_t kHomeUrlKey[] = L"homeUrl";
 constexpr wchar_t kUpdateUrlKey[] = L"updateUrl";
-constexpr wchar_t kDefaultSearchUrl[] =
-    L"https://www.bing.com/search?q={query}";
+constexpr wchar_t kDefaultSearchUrl[] = L"https://www.bing.com/search?q={query}";
 constexpr wchar_t kDefaultHomeUrl[] = L"about:blank";
+constexpr wchar_t kDefaulUserAgent[] = L"Mozilla/5.0 (Android 10.0; Mobile; rv:84.0) Gecko/20100101 Firefox/88.0";
 
 std::wstring LoadSetting(std::wstring_view key) {
   try {
@@ -1116,7 +1116,11 @@ void MainPage::ShowSettings() {
     home = kDefaultHomeUrl;
   }
   homeBox_.Text(winrt::hstring(home));
-  userAgentBox_.Text(winrt::hstring(LoadSetting(kUserAgentKey)));
+  std::wstring userAgent = LoadSetting(kUserAgentKey);
+  if (userAgent.empty()) {
+    userAgent = kDefaulUserAgent;
+  }
+  userAgentBox_.Text(winrt::hstring(userAgent));
   std::wstring updateUrl = LoadSetting(kUpdateUrlKey);
   updateUrlBox_.Text(winrt::hstring(updateUrl));
   const bool logsEnabled = LoadSetting(log::kEnabledSettingKey) == L"1";
@@ -1175,9 +1179,10 @@ void MainPage::SaveSettings() {
   const bool logsEnabled = IsCheckBoxChecked(logsCheckBox_);
   const bool defaultSearch = search.empty() || search == kDefaultSearchUrl;
   const bool defaultHome = home.empty() || home == kDefaultHomeUrl;
+  const bool defaultUserAgent = userAgent.empty() || userAgent == kDefaulUserAgent;
   StoreSetting(kSearchUrlKey, defaultSearch ? std::wstring() : search);
   StoreSetting(kHomeUrlKey, defaultHome ? std::wstring() : home);
-  StoreSetting(kUserAgentKey, userAgent);
+  StoreSetting(kUserAgentKey, defaultUserAgent ? std::wstring() : userAgent);
   StoreSetting(kUpdateUrlKey, updateUrl);
   StoreSetting(log::kEnabledSettingKey,
                logsEnabled ? std::wstring(L"1") : std::wstring());
@@ -1382,7 +1387,8 @@ winrt::fire_and_forget MainPage::CheckForUpdates(std::wstring url) {
 }
 
 winrt::hstring MainPage::UserAgent() const {
-  return winrt::hstring(LoadSetting(kUserAgentKey));
+  const std::wstring userAgent = LoadSetting(kUserAgentKey);
+  return winrt::hstring(userAgent.empty() ? kDefaulUserAgent : userAgent);
 }
 
 void MainPage::RefreshExtensionsList() {

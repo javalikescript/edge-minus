@@ -8,6 +8,7 @@ namespace edgeminus::extensions {
 
 struct Extension {
   std::wstring id;
+  std::wstring name;
   std::vector<std::wstring> patterns;
   std::wstring script;
   bool hasUserscript = false;

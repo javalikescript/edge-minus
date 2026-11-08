@@ -7,9 +7,11 @@
 
 #include <combaseapi.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <cwchar>
 #include <cwctype>
 #include <exception>
 #include <vector>
@@ -180,10 +182,9 @@ void AddPattern(std::vector<std::wstring>& patterns, std::wstring value) {
   patterns.push_back(std::move(value));
 }
 
-void ParseUserscriptMatches(std::wstring const& code,
-                            std::vector<std::wstring>& patterns) {
-  constexpr wchar_t kMatchTag[] = L"@match";
-  constexpr size_t kMatchTagLength = 6;
+void ParseUserscriptTags(std::wstring const& code, wchar_t const* tag,
+                         std::vector<std::wstring>& values) {
+  const size_t tagLength = std::wcslen(tag);
 
   size_t start = 0;
   while (start < code.size()) {
@@ -211,16 +212,40 @@ void ParseUserscriptMatches(std::wstring const& code,
       line = Trim(line.substr(0, line.size() - 2));
     }
 
-    if (line.size() < kMatchTagLength ||
-        _wcsnicmp(line.c_str(), kMatchTag, kMatchTagLength) != 0) {
+    if (line.size() < tagLength ||
+        _wcsnicmp(line.c_str(), tag, tagLength) != 0) {
       continue;
     }
-    if (line.size() > kMatchTagLength &&
-        !std::iswspace(line[kMatchTagLength])) {
+    if (line.size() > tagLength && !std::iswspace(line[tagLength])) {
       continue;
     }
-    AddPattern(patterns, Trim(line.substr(kMatchTagLength)));
+    AddPattern(values, Trim(line.substr(tagLength)));
   }
+}
+
+void ParseUserscriptMatches(std::wstring const& code,
+                            std::vector<std::wstring>& patterns) {
+  ParseUserscriptTags(code, L"@match", patterns);
+}
+
+std::wstring ParseHtmlTitle(std::wstring const& html) {
+  std::wstring lower(html.size(), L'\0');
+  std::transform(html.begin(), html.end(), lower.begin(),
+                 [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+
+  const size_t titleStart = lower.find(L"<title");
+  if (titleStart == std::wstring::npos) {
+    return {};
+  }
+  const size_t tagEnd = lower.find(L'>', titleStart);
+  if (tagEnd == std::wstring::npos) {
+    return {};
+  }
+  const size_t titleEnd = lower.find(L"</title", tagEnd);
+  if (titleEnd == std::wstring::npos) {
+    return {};
+  }
+  return Trim(html.substr(tagEnd + 1, titleEnd - tagEnd - 1));
 }
 
 std::wstring MakeShortId() {
@@ -526,6 +551,11 @@ IAsyncAction Manager::ReadExtensionAsync(StorageFolder folder,
       log::Write(L"extensions: " + extension.id + L" script read failed " +
                  std::wstring(error.message()));
     }
+    std::vector<std::wstring> names;
+    ParseUserscriptTags(extension.script, L"@name", names);
+    if (!names.empty()) {
+      extension.name = names.front();
+    }
     ParseUserscriptMatches(extension.script, extension.patterns);
     log::Write(L"extensions: " + extension.id + L" has " +
                std::to_wstring(extension.patterns.size()) + L" patterns");
@@ -533,9 +563,20 @@ IAsyncAction Manager::ReadExtensionAsync(StorageFolder folder,
 
   const IStorageItem indexItem =
       co_await folder.TryGetItemAsync(hstring(kIndexFileName));
-  extension.hasIndexHtml = indexItem && indexItem.try_as<StorageFile>();
+  const StorageFile indexFile =
+      indexItem ? indexItem.try_as<StorageFile>() : nullptr;
+  extension.hasIndexHtml = static_cast<bool>(indexFile);
   if (extension.hasIndexHtml) {
     log::Write(L"extensions: " + extension.id + L" has index.html");
+    if (extension.name.empty()) {
+      try {
+        const hstring html = co_await ReadTextFileAsync(indexFile);
+        extension.name = ParseHtmlTitle(html.c_str());
+      } catch (hresult_error const& error) {
+        log::Write(L"extensions: " + extension.id + L" index read failed " +
+                   std::wstring(error.message()));
+      }
+    }
   }
 }
 

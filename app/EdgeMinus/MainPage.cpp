@@ -1400,7 +1400,8 @@ void MainPage::RefreshExtensionsList() {
     row.ColumnDefinitions().Append(infoColumn);
     row.ColumnDefinitions().Append(actionColumn);
 
-    std::wstring label = extension.id;
+    std::wstring label =
+        extension.name.empty() ? extension.id : extension.name;
     if (!extension.patterns.empty()) {
       label += L"  " + extension.patterns.front();
     }

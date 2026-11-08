@@ -2,6 +2,7 @@
 // @name         User Agent 
 // @version      1.0
 // @description  Change the User Agent to Android Chrome
+// @match        <all_urls>
 // ==/UserScript==
 
 Object.defineProperty(navigator, 'userAgent', {

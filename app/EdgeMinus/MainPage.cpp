@@ -111,6 +111,58 @@ void StoreSetting(std::wstring_view key, std::wstring const& value) {
   }
 }
 
+// Set the process-wide default user agent used by the WebView engine.
+// Mirrors UrlMkSetSessionOption(URLMON_OPTION_USERAGENT) as used by WUT so the
+// value also applies to links, redirects and script navigations, not just the
+// first request.
+constexpr DWORD kUrlMonOptionUserAgent = 0x10000001;
+constexpr DWORD kUrlMonOptionUserAgentRefresh = 0x10000002;
+
+using UrlMkSetSessionOptionFn = HRESULT(WINAPI*)(DWORD, LPCSTR, DWORD, DWORD);
+
+UrlMkSetSessionOptionFn LoadUrlMkSetSessionOption() {
+  static UrlMkSetSessionOptionFn setSessionOption = [] {
+    HMODULE urlmon = LoadLibraryW(L"urlmon.dll");
+    if (!urlmon) {
+      return static_cast<UrlMkSetSessionOptionFn>(nullptr);
+    }
+    return reinterpret_cast<UrlMkSetSessionOptionFn>(
+        GetProcAddress(urlmon, "UrlMkSetSessionOption"));
+  }();
+  return setSessionOption;
+}
+
+void SetDefaultUserAgent(std::wstring const& userAgent) {
+  const UrlMkSetSessionOptionFn setSessionOption = LoadUrlMkSetSessionOption();
+  if (!setSessionOption) {
+    log::Write(L"main: UrlMkSetSessionOption unavailable");
+    return;
+  }
+
+  setSessionOption(kUrlMonOptionUserAgentRefresh, nullptr, 0, 0);
+  if (userAgent.empty()) {
+    log::Write(L"main: user agent reset to default");
+    return;
+  }
+
+  const int wideLength = static_cast<int>(userAgent.size());
+  const int byteLength = WideCharToMultiByte(CP_ACP, 0, userAgent.c_str(),
+                                             wideLength, nullptr, 0, nullptr,
+                                             nullptr);
+  if (byteLength <= 0) {
+    return;
+  }
+
+  std::string narrow(static_cast<size_t>(byteLength), '\0');
+  WideCharToMultiByte(CP_ACP, 0, userAgent.c_str(), wideLength, &narrow[0],
+                      byteLength, nullptr, nullptr);
+  const HRESULT hr =
+      setSessionOption(kUrlMonOptionUserAgent, narrow.c_str(),
+                       static_cast<DWORD>(narrow.size()), 0);
+  log::Write(L"main: user agent set hr=" +
+             std::to_wstring(static_cast<long>(hr)));
+}
+
 constexpr uint32_t kMaxFaviconBytes = 2u * 1024u * 1024u;
 
 winrt::Windows::Foundation::IAsyncAction SaveScaledPngAsync(
@@ -192,6 +244,7 @@ MainPage::MainPage(winrt::hstring const& initialUrl) {
   WireEvents();
   WireSystemBack();
   ApplySystemChrome();
+  SetDefaultUserAgent(std::wstring(UserAgent()));
   log::Write(L"main: opening start page");
   NavigateTo(initialUrl.empty() ? HomeUrl() : initialUrl);
 }
@@ -798,7 +851,6 @@ void MainPage::WireEvents() {
 
         if (args.IsSuccess()) {
           HideError();
-          ApplyUserAgentScript();
           ApplyExtensionScripts();
           const winrt::hstring title = web_.DocumentTitle();
           statusText_.Text(title.empty() ? winrt::hstring(L"Ready") : title);
@@ -820,14 +872,12 @@ void MainPage::WireEvents() {
   web_.ContentLoading(
       [this](WebView const&, WebViewContentLoadingEventArgs const&) {
         log::Write(L"main: content loading");
-        ApplyUserAgentScript();
         ApplyExtensionScripts();
       });
 
   web_.DOMContentLoaded(
       [this](WebView const&, WebViewDOMContentLoadedEventArgs const&) {
         log::Write(L"main: dom content loaded");
-        ApplyUserAgentScript();
         ApplyExtensionScripts();
       });
 
@@ -930,16 +980,7 @@ void MainPage::NavigateTo(winrt::hstring const& input) {
     HideError();
     log::Write(L"main: navigate " + std::wstring(currentUrl_));
 
-    const winrt::hstring userAgent = UserAgent();
-    const winrt::hstring scheme = uri.SchemeName();
-    if (!userAgent.empty() && (scheme == L"http" || scheme == L"https")) {
-      winrt::Windows::Web::Http::HttpRequestMessage request(
-          winrt::Windows::Web::Http::HttpMethod::Get(), uri);
-      request.Headers().TryAppendWithoutValidation(L"User-Agent", userAgent);
-      web_.NavigateWithHttpRequestMessage(request);
-    } else {
-      web_.Navigate(uri);
-    }
+    web_.Navigate(uri);
   } catch (winrt::hresult_error const& error) {
     log::Write(L"main: bad address " + std::wstring(error.message()));
     ShowError(L"Invalid address",
@@ -1105,6 +1146,7 @@ void MainPage::SaveSettings() {
   StoreSetting(kHomeUrlKey, defaultHome ? std::wstring() : home);
   StoreSetting(kUserAgentKey, userAgent);
   StoreSetting(kUpdateUrlKey, updateUrl);
+  SetDefaultUserAgent(userAgent);
   log::Write(L"main: settings saved");
   HideSettings();
   if (userAgent != previousUserAgent && !currentUrl_.empty()) {
@@ -1304,27 +1346,6 @@ winrt::fire_and_forget MainPage::CheckForUpdates(std::wstring url) {
 
 winrt::hstring MainPage::UserAgent() const {
   return winrt::hstring(LoadSetting(kUserAgentKey));
-}
-
-void MainPage::ApplyUserAgentScript() {
-  const std::wstring userAgent = std::wstring(UserAgent());
-  if (userAgent.empty()) {
-    return;
-  }
-  const std::wstring script =
-      L"(function(){var u=" + JsString(userAgent) +
-      L";var n=window.navigator;var p=Object.getPrototypeOf(n);"
-      L"try{Object.defineProperty(n,'userAgent',{get:function(){return "
-      L"u;},configurable:true});}catch(e){}"
-      L"try{Object.defineProperty(p,'userAgent',{get:function(){return "
-      L"u;},configurable:true});}catch(e){}"
-      L"try{Object.defineProperty(n,'appVersion',{get:function(){return "
-      L"u.replace(/^Mozilla\\//,'');},configurable:true});}catch(e){}"
-      L"})();";
-  try {
-    web_.InvokeScriptAsync(L"eval", {winrt::hstring(script)});
-  } catch (...) {
-  }
 }
 
 void MainPage::RefreshExtensionsList() {

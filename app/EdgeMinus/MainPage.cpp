@@ -2,6 +2,8 @@
 
 #include <urlmon.h>
 
+#include <chrono>
+
 #include "Extensions.h"
 #include "MainPage.h"
 
@@ -76,6 +78,23 @@ bool StartsWith(std::wstring const& text, std::wstring_view prefix) {
          _wcsnicmp(text.c_str(), prefix.data(), prefix.size()) == 0;
 }
 
+std::wstring PermissionName(WebViewPermissionType type) {
+  switch (type) {
+    case WebViewPermissionType::Geolocation:
+      return L"your location";
+    case WebViewPermissionType::Media:
+      return L"your camera or microphone";
+    case WebViewPermissionType::PointerLock:
+      return L"your mouse pointer";
+    case WebViewPermissionType::UnlimitedIndexedDBQuota:
+      return L"unlimited local storage";
+    case WebViewPermissionType::WebNotifications:
+      return L"notifications";
+    default:
+      return L"a browser feature";
+  }
+}
+
 constexpr wchar_t kSearchUrlKey[] = L"searchUrl";
 constexpr wchar_t kUserAgentKey[] = L"userAgent";
 constexpr wchar_t kHomeUrlKey[] = L"homeUrl";
@@ -83,6 +102,7 @@ constexpr wchar_t kUpdateUrlKey[] = L"updateUrl";
 constexpr wchar_t kDefaultSearchUrl[] = L"https://www.bing.com/search?q={query}";
 constexpr wchar_t kDefaultHomeUrl[] = L"about:blank";
 constexpr wchar_t kDefaulUserAgent[] = L"Mozilla/5.0 (Android 10.0; Mobile; rv:84.0) Gecko/20100101 Firefox/88.0";
+constexpr double kLongScriptThresholdMs = 5000.0;
 
 std::wstring LoadSetting(std::wstring_view key) {
   try {
@@ -820,10 +840,10 @@ void MainPage::WireEvents() {
     }
   });
 
-  web_.NavigationStarting(
-      [this](WebView const&, WebViewNavigationStartingEventArgs const& args) {
+  web_.NavigationStarting([this](WebView const&, WebViewNavigationStartingEventArgs const& args) {
         HideError();
         progress_.Visibility(Visibility::Visible);
+        longScriptStopRequested_ = false;
         UpdateChrome();
 
         auto uri = args.Uri();
@@ -849,8 +869,7 @@ void MainPage::WireEvents() {
         statusText_.Visibility(Visibility::Visible);
       });
 
-  web_.NavigationCompleted(
-      [this](WebView const&, WebViewNavigationCompletedEventArgs const& args) {
+  web_.NavigationCompleted([this](WebView const&, WebViewNavigationCompletedEventArgs const& args) {
         progress_.Visibility(Visibility::Collapsed);
         log::Write(L"main: navigation completed success=" +
                    std::wstring(args.IsSuccess() ? L"true" : L"false"));
@@ -880,36 +899,134 @@ void MainPage::WireEvents() {
         UpdateChrome();
       });
 
-  web_.ContentLoading(
-      [this](WebView const&, WebViewContentLoadingEventArgs const&) {
+  web_.ContentLoading([this](WebView const&, WebViewContentLoadingEventArgs const&) {
         log::Write(L"main: content loading");
         ApplyExtensionScripts();
       });
 
-  web_.DOMContentLoaded(
-      [this](WebView const&, WebViewDOMContentLoadedEventArgs const&) {
+  web_.DOMContentLoaded([this](WebView const&, WebViewDOMContentLoadedEventArgs const&) {
         log::Write(L"main: dom content loaded");
         ApplyExtensionScripts();
       });
 
-  if (ApiInformation::IsEventPresent(L"Windows.UI.Xaml.Controls.WebView",
-                                     L"NewWindowRequested")) {
+  web_.ContainsFullScreenElementChanged([this](WebView const& sender, IInspectable const&) {
+        try {
+          auto view = ApplicationView::GetForCurrentView();
+          if (sender.ContainsFullScreenElement()) {
+            if (!view.IsFullScreenMode()) {
+              view.TryEnterFullScreenMode();
+            }
+          } else if (view.IsFullScreenMode()) {
+            view.ExitFullScreenMode();
+          }
+        } catch (winrt::hresult_error const& error) {
+          log::Write(L"main: full screen failed " + std::wstring(error.message()));
+        } catch (...) {
+          log::Write(L"main: full screen failed");
+        }
+      });
+
+  web_.PermissionRequested([this](WebView const&, WebViewPermissionRequestedEventArgs const& args) {
+        auto request = args.PermissionRequest();
+        if (!request) {
+          return;
+        }
+        try {
+          request.Defer();
+        } catch (winrt::hresult_error const& error) {
+          log::Write(L"main: permission defer failed " + std::wstring(error.message()));
+          request.Deny();
+          return;
+        } catch (...) {
+          request.Deny();
+          return;
+        }
+        const std::wstring host = request.Uri()
+                                      ? std::wstring(request.Uri().Host())
+                                      : std::wstring(L"This site");
+        const std::wstring message = host + L" wants to use " + PermissionName(request.PermissionType()) + L".";
+        log::Write(L"main: permission requested " + message);
+        try {
+          request.Deny();
+        } catch (...) {
+        }
+      });
+
+  web_.LongRunningScriptDetected([this](WebView const&, WebViewLongRunningScriptDetectedEventArgs const& args) {
+        try {
+          if (longScriptStopRequested_) {
+            return;
+          }
+          const double elapsedMs = std::chrono::duration<double, std::milli>(args.ExecutionTime()).count();
+          if (elapsedMs < kLongScriptThresholdMs) {
+            return;
+          }
+          longScriptStopRequested_ = true;
+          log::Write(L"main: long running script " +
+                     std::to_wstring(static_cast<long long>(elapsedMs)) +
+                     L"ms, stopping");
+          args.StopPageScriptExecution(true);
+          log::Write(L"main: stopped long running script");
+        } catch (winrt::hresult_error const& error) {
+          log::Write(L"main: long running script failed " + std::wstring(error.message()));
+        } catch (...) {
+          log::Write(L"main: long running script failed");
+        }
+      });
+
+  web_.UnsafeContentWarningDisplaying([this](WebView const&, IInspectable const&) {
+        log::Write(L"main: unsafe content warning");
+        /*
+        statusText_.Text(L"This page was reported as unsafe.");
+        statusText_.Visibility(Visibility::Visible);
+        */
+      });
+
+  web_.UnviewableContentIdentified([this](WebView const&, WebViewUnviewableContentIdentifiedEventArgs const& args) {
+        std::wstring mediaType;
+        try {
+          mediaType = std::wstring(args.MediaType());
+        } catch (...) {
+        }
+        auto uri = args.Uri();
+        std::wstring target;
+        if (uri) {
+          target = uri.AbsoluteUri();
+        }
+        log::Write(L"main: unviewable content " + mediaType + L" " + target);
+        /*
+        statusText_.Text(L"This content can't be displayed in the browser.");
+        statusText_.Visibility(Visibility::Visible);
+        if (uri) {
+          LaunchExternal(uri);
+        }
+        */
+      });
+
+  if (ApiInformation::IsEventPresent(L"Windows.UI.Xaml.Controls.WebView", L"NewWindowRequested")) {
     web_.NewWindowRequested(
         [this](WebView const&, WebViewNewWindowRequestedEventArgs const& args) {
           args.Handled(true);
           if (auto uri = args.Uri()) {
+            log::Write(L"main: new window navigate to " + std::wstring(uri.AbsoluteUri()));
             NavigateTo(uri.AbsoluteUri());
           }
         });
   }
 
-  if (ApiInformation::IsEventPresent(L"Windows.UI.Xaml.Controls.WebView",
-                                     L"UnsupportedUriSchemeIdentified")) {
+  if (ApiInformation::IsEventPresent(L"Windows.UI.Xaml.Controls.WebView", L"UnsupportedUriSchemeIdentified")) {
     web_.UnsupportedUriSchemeIdentified(
         [this](WebView const&,
                WebViewUnsupportedUriSchemeIdentifiedEventArgs const& args) {
           args.Handled(true);
           if (auto uri = args.Uri()) {
+            const winrt::hstring scheme = uri.SchemeName();
+            const std::wstring target = std::wstring(uri.AbsoluteUri());
+            if (scheme == L"intent") {
+              log::Write(L"main: ignoring intent uri scheme " + target);
+              return;
+            }
+            log::Write(L"main: unsupported uri scheme " + target);
             LaunchExternal(uri);
           }
         });
@@ -1561,7 +1678,7 @@ winrt::hstring MainPage::ResolveInput(winrt::hstring const& input) const {
   if (hasScheme || StartsWith(lower, L"about:") ||
       StartsWith(lower, L"file:") || StartsWith(lower, L"data:") ||
       StartsWith(lower, L"blob:") || StartsWith(lower, L"ms-appx:") ||
-      StartsWith(lower, L"ms-appdata:")) {
+      StartsWith(lower, L"ms-appdata:") || StartsWith(lower, L"ms-local-stream:")) {
     return winrt::hstring(text);
   }
   if (StartsWith(lower, L"mailto:") || StartsWith(lower, L"tel:") ||

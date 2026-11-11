@@ -63,6 +63,7 @@
 
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="ContentAdapter.h" />
     <ClInclude Include="Extensions.h" />
     <ClInclude Include="Log.h" />
     <ClInclude Include="MainPage.h" />
@@ -74,6 +75,7 @@
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="App.cpp" />
+    <ClCompile Include="ContentAdapter.cpp" />
     <ClCompile Include="Extensions.cpp" />
     <ClCompile Include="Log.cpp" />
     <ClCompile Include="MainPage.cpp" />

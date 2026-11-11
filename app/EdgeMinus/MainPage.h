@@ -23,6 +23,7 @@ class MainPage {
   void ApplyVisibleBounds();
 
   void LoadFromAddressBar();
+  void NavigateToAdapted();
   void UpdateChrome();
   void ShowError(winrt::hstring const& title, winrt::hstring const& detail,
                  bool includeUrl = true);
@@ -84,6 +85,7 @@ class MainPage {
   winrt::Windows::UI::Xaml::Controls::Button logsButton_{nullptr};
   winrt::Windows::UI::Xaml::Controls::ScrollViewer logsScroll_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBlock logsText_{nullptr};
+  winrt::Windows::Web::IUriToStreamResolver resolver_{nullptr};
 
   winrt::hstring currentUrl_;
   bool extensionsLoadStarted_{false};

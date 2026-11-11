@@ -4,6 +4,7 @@
 
 #include <chrono>
 
+#include "ContentAdapter.h"
 #include "Extensions.h"
 #include "MainPage.h"
 
@@ -789,6 +790,17 @@ void MainPage::WireEvents() {
 
   menu.Items().Append(MenuFlyoutSeparator());
 
+  auto adaptIcon = MakeGlyphIcon(L"\uE774");
+  auto adaptItem = MenuFlyoutItem();
+  adaptItem.Text(L"Adapt page");
+  adaptItem.Icon(adaptIcon);
+  adaptItem.Click([this](IInspectable const&, RoutedEventArgs const&) {
+    NavigateToAdapted();
+  });
+  menu.Items().Append(adaptItem);
+
+  menu.Items().Append(MenuFlyoutSeparator());
+
   auto extensionsIcon = MakeGlyphIcon(L"\uE71D");
   auto extensionsItem = MenuFlyoutItem();
   extensionsItem.Text(L"Extensions");
@@ -1092,6 +1104,60 @@ void MainPage::LoadFromAddressBar() {
   try {
     web_.Focus(FocusState::Programmatic);
   } catch (...) {
+  }
+}
+
+void MainPage::NavigateToAdapted() {
+  if (currentUrl_.empty()) {
+    return;
+  }
+
+  try {
+    const Uri current{currentUrl_};
+    const std::wstring scheme = std::wstring(current.SchemeName());
+    if (_wcsicmp(scheme.c_str(), L"http") != 0 &&
+        _wcsicmp(scheme.c_str(), L"https") != 0) {
+      statusText_.Text(L"Only http and https pages can be adapted.");
+      statusText_.Visibility(Visibility::Visible);
+      return;
+    }
+
+    const std::wstring localPath = content::LocalPathFromUri(current);
+    if (localPath.empty()) {
+      statusText_.Text(L"This address can't be adapted.");
+      statusText_.Visibility(Visibility::Visible);
+      return;
+    }
+
+    if (!resolver_) {
+      resolver_ = winrt::make<content::StreamResolver>()
+                      .as<winrt::Windows::Web::IUriToStreamResolver>();
+    }
+
+    const size_t suffixStart = localPath.find_first_of(L"?#");
+    const std::wstring basePath = localPath.substr(0, suffixStart);
+    const std::wstring suffix =
+        suffixStart == std::wstring::npos ? std::wstring()
+                                          : localPath.substr(suffixStart);
+    const Uri localBase = web_.BuildLocalStreamUri(
+        winrt::hstring(content::kContentId),
+        winrt::hstring(L"/" + basePath));
+    std::wstring localText = std::wstring(localBase.AbsoluteUri());
+    localText += suffix;
+    const Uri local{winrt::hstring(localText)};
+    currentUrl_ = local.AbsoluteUri();
+    addressBar_.Text(currentUrl_);
+    HideError();
+    log::Write(L"main: navigate adapted " + std::wstring(currentUrl_));
+    web_.NavigateToLocalStreamUri(local, resolver_);
+  } catch (winrt::hresult_error const& error) {
+    log::Write(L"main: adapt failed " + std::wstring(error.message()));
+    statusText_.Text(L"This page can't be adapted.");
+    statusText_.Visibility(Visibility::Visible);
+  } catch (...) {
+    log::Write(L"main: adapt failed");
+    statusText_.Text(L"This page can't be adapted.");
+    statusText_.Visibility(Visibility::Visible);
   }
 }
 

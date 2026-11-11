@@ -1276,7 +1276,7 @@ wstring PatternKeys(wstring const& src, vector<Tok> const& tokens,
       if (!keys.empty()) {
         keys += L", ";
       }
-      keys += L"String(" + expression + L")";
+      keys += L"(" + expression + L")";
       continue;
     }
     if (first.kind == TK::Ident) {
@@ -1304,6 +1304,592 @@ wstring PatternKeys(wstring const& src, vector<Tok> const& tokens,
   return keys;
 }
 
+struct RestJob {
+  wstring temp;
+  size_t open{0};
+  size_t close{0};
+};
+
+struct PatternPlan {
+  wstring temp;
+  bool object{false};
+  wstring body;
+  bool hasRest{false};
+  wstring restName;
+  wstring keys;
+  vector<RestJob> children;
+};
+
+struct RestPlanSet {
+  vector<PatternPlan> plans;
+  vector<wstring> temps;
+};
+
+size_t FindElementEnd(wstring const& src, vector<Tok> const& tokens,
+                      size_t start, size_t close) {
+  int depth = 0;
+  for (size_t index = start; index < close; ++index) {
+    if (IsOpen(src, tokens[index])) {
+      ++depth;
+    } else if (IsClose(src, tokens[index])) {
+      --depth;
+    } else if (depth == 0 && IsPunct(src, tokens[index], L",")) {
+      return index;
+    }
+  }
+  return close;
+}
+
+bool PatternContainsRest(wstring const& src, vector<Tok> const& tokens,
+                         size_t open, size_t close) {
+  const bool object = IsPunct(src, tokens[open], L"{");
+  size_t index = open + 1;
+  while (index < close) {
+    if (IsPunct(src, tokens[index], L",")) {
+      ++index;
+      continue;
+    }
+    if (object && IsPunct(src, tokens[index], L"...")) {
+      return true;
+    }
+    if (!object && IsPunct(src, tokens[index], L"...")) {
+      index = FindElementEnd(src, tokens, index + 1, close);
+      continue;
+    }
+    size_t valueStart = wstring::npos;
+    if (object) {
+      if (IsPunct(src, tokens[index], L"[")) {
+        const size_t keyClose = FindMatchingForward(src, tokens, index);
+        if (keyClose >= close) {
+          return false;
+        }
+        index = keyClose + 1;
+        if (index < close && IsPunct(src, tokens[index], L":")) {
+          valueStart = index + 1;
+        }
+      } else {
+        ++index;
+        if (index < close && IsPunct(src, tokens[index], L":")) {
+          valueStart = index + 1;
+        }
+      }
+    } else {
+      valueStart = index;
+    }
+    if (valueStart != wstring::npos && valueStart < close &&
+        (IsPunct(src, tokens[valueStart], L"{") ||
+         IsPunct(src, tokens[valueStart], L"["))) {
+      const size_t childClose =
+          FindMatchingForward(src, tokens, valueStart);
+      if (childClose >= close) {
+        return false;
+      }
+      if (PatternContainsRest(src, tokens, valueStart, childClose)) {
+        return true;
+      }
+      index = childClose + 1;
+    } else if (valueStart != wstring::npos) {
+      ++index;
+    }
+    index = FindElementEnd(src, tokens, index, close);
+  }
+  return false;
+}
+
+wstring BuildPatternBody(wstring const& src, vector<Tok> const& tokens,
+                         size_t open, size_t close, bool object,
+                         bool& hasRest, wstring& restName, vector<RestJob>& jobs,
+                         Usage& usage) {
+  const size_t base = tokens[open].end;
+  vector<Edit> edits;
+  hasRest = false;
+  restName.clear();
+  size_t index = open + 1;
+  while (index < close) {
+    if (IsPunct(src, tokens[index], L",")) {
+      ++index;
+      continue;
+    }
+    if (object && IsPunct(src, tokens[index], L"...")) {
+      const size_t elementEnd =
+          FindElementEnd(src, tokens, index + 1, close);
+      if (index + 1 < elementEnd) {
+        restName = src.substr(tokens[index + 1].begin,
+                              tokens[elementEnd - 1].end -
+                                  tokens[index + 1].begin);
+        edits.push_back({tokens[index].begin - base,
+                         tokens[elementEnd - 1].end - base, L""});
+        hasRest = true;
+      }
+      index = elementEnd;
+      continue;
+    }
+    if (!object && IsPunct(src, tokens[index], L"...")) {
+      index = FindElementEnd(src, tokens, index + 1, close);
+      continue;
+    }
+    size_t valueStart = wstring::npos;
+    if (object) {
+      if (IsPunct(src, tokens[index], L"[")) {
+        const size_t keyClose = FindMatchingForward(src, tokens, index);
+        if (keyClose >= close) {
+          break;
+        }
+        index = keyClose + 1;
+        if (index < close && IsPunct(src, tokens[index], L":")) {
+          valueStart = index + 1;
+        }
+      } else {
+        ++index;
+        if (index < close && IsPunct(src, tokens[index], L":")) {
+          valueStart = index + 1;
+        }
+      }
+    } else {
+      valueStart = index;
+    }
+    if (valueStart != wstring::npos && valueStart < close &&
+        (IsPunct(src, tokens[valueStart], L"{") ||
+         IsPunct(src, tokens[valueStart], L"["))) {
+      const size_t childClose =
+          FindMatchingForward(src, tokens, valueStart);
+      if (childClose < close) {
+        if (PatternContainsRest(src, tokens, valueStart, childClose)) {
+          if (IsPunct(src, tokens[valueStart], L"{")) {
+            const wstring temp =
+                L"__em_rest_" + std::to_wstring(usage.counter++);
+            jobs.push_back({temp, valueStart, childClose});
+            edits.push_back({tokens[valueStart].begin - base,
+                             tokens[childClose].end - base, temp});
+          } else {
+            bool childHasRest = false;
+            wstring childRest;
+            vector<RestJob> childJobs;
+            const wstring childBody = BuildPatternBody(
+                src, tokens, valueStart, childClose, false, childHasRest,
+                childRest, childJobs, usage);
+            jobs.insert(jobs.end(), childJobs.begin(), childJobs.end());
+            edits.push_back({tokens[valueStart].begin - base,
+                             tokens[childClose].end - base,
+                             L"[" + childBody + L"]"});
+          }
+        }
+        index = childClose + 1;
+      } else {
+        ++index;
+      }
+    } else if (valueStart != wstring::npos) {
+      ++index;
+    }
+    index = FindElementEnd(src, tokens, index, close);
+  }
+  return ApplyEdits(src.substr(base, tokens[close].begin - base), edits);
+}
+
+PatternPlan MakePatternPlan(wstring const& src, vector<Tok> const& tokens,
+                            wstring const& temp, size_t open, size_t close,
+                            Usage& usage) {
+  PatternPlan plan;
+  plan.temp = temp;
+  plan.object = IsPunct(src, tokens[open], L"{");
+  plan.body = BuildPatternBody(src, tokens, open, close, plan.object,
+                               plan.hasRest, plan.restName, plan.children,
+                               usage);
+  if (plan.hasRest) {
+    plan.keys = PatternKeys(src, tokens, open, close);
+  }
+  return plan;
+}
+
+RestPlanSet MakePlanSet(wstring const& src, vector<Tok> const& tokens,
+                        PatternPlan root, Usage& usage) {
+  RestPlanSet set;
+  vector<PatternPlan> queue;
+  queue.push_back(std::move(root));
+  for (size_t head = 0; head < queue.size(); ++head) {
+    PatternPlan plan = std::move(queue[head]);
+    if (plan.hasRest) {
+      usage.rest = true;
+    }
+    for (auto const& child : plan.children) {
+      set.temps.push_back(child.temp);
+      queue.push_back(MakePatternPlan(src, tokens, child.temp, child.open,
+                                      child.close, usage));
+    }
+    set.plans.push_back(std::move(plan));
+  }
+  return set;
+}
+
+wstring PatternLiteral(PatternPlan const& plan) {
+  if (plan.object) {
+    return L"{" + plan.body + L"}";
+  }
+  return L"[" + plan.body + L"]";
+}
+
+wstring BuildDeclaratorChain(vector<PatternPlan> const& plans) {
+  wstring chain;
+  for (auto const& plan : plans) {
+    if (!chain.empty()) {
+      chain += L", ";
+    }
+    chain += PatternLiteral(plan) + L" = " + plan.temp;
+    if (plan.hasRest) {
+      chain += L", " + plan.restName + L" = " + wstring(kRestHelper) + L"(" +
+               plan.temp + L", [" + plan.keys + L"])";
+    }
+  }
+  return chain;
+}
+
+wstring BuildTempDeclarations(vector<wstring> const& temps) {
+  if (temps.empty()) {
+    return L"";
+  }
+  wstring text = L"var ";
+  for (size_t index = 0; index < temps.size(); ++index) {
+    if (index > 0) {
+      text += L", ";
+    }
+    text += temps[index];
+  }
+  return text + L";";
+}
+
+wstring BuildAssignmentStatements(vector<PatternPlan> const& plans) {
+  wstring text;
+  for (auto const& plan : plans) {
+    text += L"(" + PatternLiteral(plan) + L" = " + plan.temp + L");";
+    if (plan.hasRest) {
+      text += plan.restName + L" = " + wstring(kRestHelper) + L"(" +
+              plan.temp + L", [" + plan.keys + L"]);";
+    }
+  }
+  return text;
+}
+
+size_t DirectiveInsertOffset(wstring const& src, vector<Tok> const& tokens,
+                             size_t open, size_t close) {
+  size_t index = open + 1;
+  size_t insert = tokens[open].end;
+  while (index < close && tokens[index].kind == TK::String) {
+    const size_t after = index + 1;
+    if (after < close && IsPunct(src, tokens[after], L";")) {
+      insert = tokens[after].end;
+      index = after + 1;
+      continue;
+    }
+    if (after >= close) {
+      insert = tokens[index].end;
+      break;
+    }
+    Tok const& next = tokens[after];
+    bool continues = false;
+    if (next.kind == TK::Punct) {
+      continues = !IsPunct(src, next, L"}") && !IsPunct(src, next, L";") &&
+                  !IsPunct(src, next, L"{");
+    } else if (next.kind == TK::Regex || next.kind == TK::Template) {
+      continues = true;
+    } else if (!next.nl) {
+      continues = true;
+    }
+    if (continues) {
+      break;
+    }
+    insert = tokens[index].end;
+    index = after;
+  }
+  return insert;
+}
+
+size_t TopLevelDirectiveInsert(wstring const& src, vector<Tok> const& tokens) {
+  size_t index = 0;
+  size_t insert = 0;
+  while (index < tokens.size() && tokens[index].kind == TK::String) {
+    const size_t after = index + 1;
+    if (after < tokens.size() && IsPunct(src, tokens[after], L";")) {
+      insert = tokens[after].end;
+      index = after + 1;
+      continue;
+    }
+    if (after >= tokens.size()) {
+      insert = tokens[index].end;
+      break;
+    }
+    Tok const& next = tokens[after];
+    bool continues = false;
+    if (next.kind == TK::Punct) {
+      continues = !IsPunct(src, next, L"}") && !IsPunct(src, next, L";") &&
+                  !IsPunct(src, next, L"{");
+    } else if (next.kind == TK::Regex || next.kind == TK::Template) {
+      continues = true;
+    } else if (!next.nl) {
+      continues = true;
+    }
+    if (continues) {
+      break;
+    }
+    insert = tokens[index].end;
+    index = after;
+  }
+  return insert;
+}
+
+bool IsComplexBodyStart(wstring const& src, vector<Tok> const& tokens,
+                        size_t index) {
+  if (index >= tokens.size()) {
+    return true;
+  }
+  Tok const& tok = tokens[index];
+  if (IsIdent(src, tok, L"if") || IsIdent(src, tok, L"do") ||
+      IsIdent(src, tok, L"for") || IsIdent(src, tok, L"while") ||
+      IsIdent(src, tok, L"switch") || IsIdent(src, tok, L"try") ||
+      IsIdent(src, tok, L"with") || IsIdent(src, tok, L"function") ||
+      IsIdent(src, tok, L"class") || IsIdent(src, tok, L"import") ||
+      IsIdent(src, tok, L"export")) {
+    return true;
+  }
+  if (IsIdent(src, tok, L"async") && index + 1 < tokens.size() &&
+      IsIdent(src, tokens[index + 1], L"function")) {
+    return true;
+  }
+  return tok.kind == TK::Ident && index + 1 < tokens.size() &&
+         IsPunct(src, tokens[index + 1], L":");
+}
+
+bool EndsStatement(wstring const& src, Tok const& tok) {
+  if (tok.kind == TK::Ident || tok.kind == TK::Number ||
+      tok.kind == TK::String || tok.kind == TK::Template ||
+      tok.kind == TK::Regex) {
+    return true;
+  }
+  return tok.kind == TK::Punct &&
+         (IsPunct(src, tok, L")") || IsPunct(src, tok, L"]") ||
+          IsPunct(src, tok, L"}") || IsPunct(src, tok, L"++") ||
+          IsPunct(src, tok, L"--"));
+}
+
+bool StartsNewStatement(wstring const& src, Tok const& tok) {
+  if (tok.kind == TK::Ident) {
+    return !IsIdent(src, tok, L"in") && !IsIdent(src, tok, L"instanceof");
+  }
+  if (tok.kind == TK::Number || tok.kind == TK::String) {
+    return true;
+  }
+  return tok.kind == TK::Punct &&
+         (IsPunct(src, tok, L"{") || IsPunct(src, tok, L"!") ||
+          IsPunct(src, tok, L"~") || IsPunct(src, tok, L"++") ||
+          IsPunct(src, tok, L"--"));
+}
+
+wstring ReplaceForOfRest(wstring const& src, Usage& usage, bool& changed) {
+  vector<Tok> tokens = Tokenize(src);
+  vector<Edit> edits;
+  for (size_t index = 0; index < tokens.size();) {
+    if (!IsIdent(src, tokens[index], L"for")) {
+      ++index;
+      continue;
+    }
+    size_t cursor = index + 1;
+    if (cursor < tokens.size() && IsIdent(src, tokens[cursor], L"await")) {
+      ++cursor;
+    }
+    if (cursor >= tokens.size() || !IsPunct(src, tokens[cursor], L"(")) {
+      ++index;
+      continue;
+    }
+    const size_t headerOpen = cursor;
+    const size_t headerClose = FindMatchingForward(src, tokens, headerOpen);
+    if (headerClose <= headerOpen || headerClose >= tokens.size()) {
+      ++index;
+      continue;
+    }
+    size_t patternStart = headerOpen + 1;
+    wstring kind;
+    if (patternStart < headerClose && tokens[patternStart].kind == TK::Ident) {
+      const wstring word = Text(src, tokens[patternStart]);
+      if (word == L"const" || word == L"let" || word == L"var") {
+        kind = word;
+        ++patternStart;
+      }
+    }
+    if (patternStart >= headerClose ||
+        !(IsPunct(src, tokens[patternStart], L"{") ||
+          IsPunct(src, tokens[patternStart], L"["))) {
+      ++index;
+      continue;
+    }
+    const size_t patternClose =
+        FindMatchingForward(src, tokens, patternStart);
+    if (patternClose >= headerClose) {
+      ++index;
+      continue;
+    }
+    if (patternClose + 1 >= headerClose ||
+        !(IsIdent(src, tokens[patternClose + 1], L"of") ||
+          IsIdent(src, tokens[patternClose + 1], L"in"))) {
+      ++index;
+      continue;
+    }
+    if (!PatternContainsRest(src, tokens, patternStart, patternClose)) {
+      ++index;
+      continue;
+    }
+    const size_t bodyStart = headerClose + 1;
+    if (bodyStart >= tokens.size()) {
+      ++index;
+      continue;
+    }
+    bool blockBody = IsPunct(src, tokens[bodyStart], L"{");
+    if (!blockBody &&
+        IsComplexBodyStart(src, tokens, bodyStart)) {
+      ++index;
+      continue;
+    }
+    size_t bodyClose = bodyStart;
+    size_t statementEnd = bodyStart;
+    if (blockBody) {
+      bodyClose = FindMatchingForward(src, tokens, bodyStart);
+      if (bodyClose <= bodyStart || bodyClose >= tokens.size()) {
+        ++index;
+        continue;
+      }
+    } else {
+      int depth = 0;
+      bool foundEnd = false;
+      bool unsafe = false;
+      size_t scan = bodyStart;
+      for (; scan < tokens.size(); ++scan) {
+        if (depth == 0 && scan > bodyStart && tokens[scan].nl &&
+            EndsStatement(src, tokens[scan - 1]) &&
+            StartsNewStatement(src, tokens[scan])) {
+          unsafe = true;
+          break;
+        }
+        if (depth == 0 && IsIdent(src, tokens[scan], L"do")) {
+          unsafe = true;
+          break;
+        }
+        if (IsOpen(src, tokens[scan])) {
+          ++depth;
+        } else if (IsClose(src, tokens[scan])) {
+          if (depth == 0) {
+            if (scan > bodyStart) {
+              statementEnd = scan - 1;
+              foundEnd = true;
+            }
+            break;
+          }
+          --depth;
+        } else if (depth == 0 && IsPunct(src, tokens[scan], L";")) {
+          statementEnd = scan;
+          foundEnd = true;
+          break;
+        }
+      }
+      if (!foundEnd && !unsafe && scan >= tokens.size() && scan > bodyStart) {
+        statementEnd = tokens.size() - 1;
+        foundEnd = true;
+      }
+      if (!foundEnd || unsafe) {
+        ++index;
+        continue;
+      }
+      if (statementEnd + 1 < tokens.size() &&
+          IsIdent(src, tokens[statementEnd + 1], L"else")) {
+        ++index;
+        continue;
+      }
+    }
+    const wstring temp = L"__em_rest_" + std::to_wstring(usage.counter++);
+    PatternPlan root =
+        MakePatternPlan(src, tokens, temp, patternStart, patternClose, usage);
+    RestPlanSet set = MakePlanSet(src, tokens, root, usage);
+    wstring statements;
+    if (!kind.empty()) {
+      statements = kind + L" " + BuildDeclaratorChain(set.plans) + L";";
+    } else {
+      statements = BuildTempDeclarations(set.temps) +
+                   BuildAssignmentStatements(set.plans);
+    }
+    edits.push_back({tokens[patternStart].begin, tokens[patternClose].end,
+                     kind.empty() ? L"const " + temp : temp});
+    if (blockBody) {
+      edits.push_back({tokens[bodyStart].end, tokens[bodyStart].end,
+                       statements});
+    } else {
+      edits.push_back({tokens[bodyStart].begin, tokens[bodyStart].begin,
+                       L"{" + statements});
+      edits.push_back({tokens[statementEnd].end, tokens[statementEnd].end,
+                       L"}"});
+    }
+    usage.rest = true;
+    changed = true;
+    index = blockBody ? bodyClose + 1 : statementEnd + 1;
+  }
+  return ApplyEdits(src, edits);
+}
+
+wstring ReplaceRestAssignments(wstring const& src, Usage& usage,
+                               bool& changed) {
+  vector<Tok> tokens = Tokenize(src);
+  vector<Edit> edits;
+  for (size_t index = 0; index < tokens.size();) {
+    if (!(IsPunct(src, tokens[index], L"{") ||
+          IsPunct(src, tokens[index], L"["))) {
+      ++index;
+      continue;
+    }
+    const size_t close = FindMatchingForward(src, tokens, index);
+    if (close <= index || close + 1 >= tokens.size() ||
+        !IsPunct(src, tokens[close + 1], L"=")) {
+      ++index;
+      continue;
+    }
+    if (index > 0 && tokens[index - 1].kind == TK::Ident) {
+      const wstring before = Text(src, tokens[index - 1]);
+      if (before == L"const" || before == L"let" || before == L"var") {
+        ++index;
+        continue;
+      }
+    }
+    const size_t paren = FindEnclosingParen(src, tokens, index);
+    if (paren != wstring::npos &&
+        IsParameterParen(src, tokens, paren)) {
+      ++index;
+      continue;
+    }
+    if (!PatternContainsRest(src, tokens, index, close)) {
+      ++index;
+      continue;
+    }
+    const size_t equals = close + 1;
+    const size_t valueEnd = FindAssignRightEnd(src, tokens, equals);
+    if (valueEnd <= equals + 1) {
+      ++index;
+      continue;
+    }
+    const wstring temp = L"__em_rest_" + std::to_wstring(usage.counter++);
+    PatternPlan root =
+        MakePatternPlan(src, tokens, temp, index, close, usage);
+    RestPlanSet set = MakePlanSet(src, tokens, root, usage);
+    const wstring value = src.substr(
+        tokens[equals + 1].begin,
+        tokens[valueEnd - 1].end - tokens[equals + 1].begin);
+    const wstring replacement =
+        L"((" + temp + L") => {" + BuildTempDeclarations(set.temps) +
+        BuildAssignmentStatements(set.plans) + L"return " + temp + L";})(" +
+        value + L")";
+    edits.push_back({tokens[index].begin, tokens[valueEnd - 1].end,
+                     replacement});
+    usage.rest = true;
+    changed = true;
+    index = valueEnd;
+  }
+  return ApplyEdits(src, edits);
+}
+
 wstring ReplaceObjectRest(wstring const& src, Usage& usage, bool& changed) {
   vector<Tok> tokens = Tokenize(src);
   vector<Edit> edits;
@@ -1324,130 +1910,70 @@ wstring ReplaceObjectRest(wstring const& src, Usage& usage, bool& changed) {
           tokens[cursor].nl) {
         break;
       }
-      if (!IsPunct(src, tokens[cursor], L"{")) {
-        int depth = 0;
-        for (; cursor < tokens.size(); ++cursor) {
-          if (IsOpen(src, tokens[cursor])) {
-            ++depth;
-          } else if (IsClose(src, tokens[cursor])) {
-            --depth;
-          } else if (depth == 0 &&
-                     (IsPunct(src, tokens[cursor], L",") ||
-                      IsPunct(src, tokens[cursor], L";"))) {
-            break;
+      if (IsPunct(src, tokens[cursor], L"{") ||
+          IsPunct(src, tokens[cursor], L"[")) {
+        const size_t close = FindMatchingForward(src, tokens, cursor);
+        const bool matched =
+            close > cursor && close < tokens.size() &&
+            (IsPunct(src, tokens[cursor], L"{")
+                 ? IsPunct(src, tokens[close], L"}")
+                 : IsPunct(src, tokens[close], L"]"));
+        if (matched && PatternContainsRest(src, tokens, cursor, close)) {
+          const size_t equals = close + 1;
+          if (equals < tokens.size() && IsPunct(src, tokens[equals], L"=")) {
+            const size_t valueEnd = FindAssignRightEnd(src, tokens, equals);
+            if (valueEnd > equals + 1) {
+              const wstring temp =
+                  L"__em_rest_" + std::to_wstring(usage.counter++);
+              PatternPlan root =
+                  MakePatternPlan(src, tokens, temp, cursor, close, usage);
+              RestPlanSet set = MakePlanSet(src, tokens, root, usage);
+              const wstring value = src.substr(
+                  tokens[equals + 1].begin,
+                  tokens[valueEnd - 1].end - tokens[equals + 1].begin);
+              const wstring replacement =
+                  temp + L" = " + value + L", " +
+                  BuildDeclaratorChain(set.plans);
+              edits.push_back({tokens[cursor].begin,
+                               tokens[valueEnd - 1].end, replacement});
+              usage.rest = true;
+              changed = true;
+              cursor = valueEnd;
+              if (cursor < tokens.size() &&
+                  IsPunct(src, tokens[cursor], L",")) {
+                ++cursor;
+                continue;
+              }
+              break;
+            }
           }
         }
-        if (cursor < tokens.size() && IsPunct(src, tokens[cursor], L",")) {
-          ++cursor;
-          continue;
+        if (!matched) {
+          break;
         }
-        break;
+        if (close + 1 < tokens.size() &&
+            (IsIdent(src, tokens[close + 1], L"of") ||
+             IsIdent(src, tokens[close + 1], L"in"))) {
+          cursor = close + 1;
+          break;
+        }
+        cursor = close + 1;
       }
-      const size_t close = FindMatchingForward(src, tokens, cursor);
       int depth = 0;
-      size_t restPart = wstring::npos;
-      for (size_t inner = cursor + 1; inner < close; ++inner) {
-        if (IsOpen(src, tokens[inner])) {
+      for (; cursor < tokens.size(); ++cursor) {
+        if (IsOpen(src, tokens[cursor])) {
           ++depth;
-        } else if (IsClose(src, tokens[inner])) {
-          --depth;
-        } else if (depth == 0 && IsPunct(src, tokens[inner], L"...")) {
-          restPart = inner;
-          break;
-        }
-      }
-      if (restPart == wstring::npos) {
-        cursor = close + 1;
-        if (cursor < tokens.size() && IsPunct(src, tokens[cursor], L",")) {
-          ++cursor;
-          continue;
-        }
-        break;
-      }
-      size_t equals = close + 1;
-      while (equals < tokens.size() &&
-             !IsPunct(src, tokens[equals], L"=")) {
-        if (IsPunct(src, tokens[equals], L",") ||
-            IsPunct(src, tokens[equals], L";")) {
-          break;
-        }
-        ++equals;
-      }
-      if (equals >= tokens.size() || !IsPunct(src, tokens[equals], L"=")) {
-        cursor = close + 1;
-        if (cursor < tokens.size() && IsPunct(src, tokens[cursor], L",")) {
-          ++cursor;
-          continue;
-        }
-        break;
-      }
-      size_t valueStart = equals + 1;
-      const size_t valueEnd = FindAssignRightEnd(src, tokens, equals);
-      if (valueEnd <= valueStart) {
-        cursor = close + 1;
-        if (cursor < tokens.size() && IsPunct(src, tokens[cursor], L",")) {
-          ++cursor;
-          continue;
-        }
-        break;
-      }
-      if (restPart + 1 >= close || tokens[restPart + 1].kind != TK::Ident) {
-        cursor = close + 1;
-        if (cursor < tokens.size() && IsPunct(src, tokens[cursor], L",")) {
-          ++cursor;
-          continue;
-        }
-        break;
-      }
-      const wstring restName = Text(src, tokens[restPart + 1]);
-      const wstring keys = PatternKeys(src, tokens, cursor, close);
-      wstring restless;
-      int innerDepth = 0;
-      size_t partStart = cursor + 1;
-      bool first = true;
-      for (size_t inner = cursor + 1; inner < close; ++inner) {
-        if (IsOpen(src, tokens[inner])) {
-          ++innerDepth;
-        } else if (IsClose(src, tokens[inner])) {
-          --innerDepth;
-        } else if (innerDepth == 0 &&
-                   (IsPunct(src, tokens[inner], L",") ||
-                    (IsPunct(src, tokens[inner], L"...") &&
-                     tokens[inner].begin >= tokens[restPart].begin))) {
-          if (inner == restPart) {
+        } else if (IsClose(src, tokens[cursor])) {
+          if (depth == 0) {
             break;
           }
-          if (!first) {
-            restless += L", ";
-          }
-          restless += src.substr(tokens[partStart].begin,
-                                 tokens[inner].begin -
-                                     tokens[partStart].begin);
-          first = false;
-          partStart = inner + 1;
+          --depth;
+        } else if (depth == 0 &&
+                   (IsPunct(src, tokens[cursor], L",") ||
+                    IsPunct(src, tokens[cursor], L";"))) {
+          break;
         }
       }
-      if (restPart < close && restPart > cursor + 1) {
-        if (!first) {
-          restless += L", ";
-        }
-        restless += src.substr(tokens[partStart].begin,
-                               tokens[restPart].begin -
-                                   tokens[partStart].begin);
-      }
-      const wstring temp = L"__em_rest_" + std::to_wstring(usage.counter++);
-      const wstring value =
-          src.substr(tokens[valueStart].begin,
-                     tokens[valueEnd - 1].end - tokens[valueStart].begin);
-      const wstring replacement =
-          temp + L" = " + value + L", {" + restless + L"} = " + temp + L", " +
-          restName + L" = " + wstring(kRestHelper) + L"(" + temp + L", [" +
-          keys + L"])";
-      edits.push_back({tokens[cursor].begin, tokens[valueEnd - 1].end,
-                       replacement});
-      usage.rest = true;
-      changed = true;
-      cursor = valueEnd;
       if (cursor < tokens.size() && IsPunct(src, tokens[cursor], L",")) {
         ++cursor;
         continue;
@@ -1457,34 +1983,6 @@ wstring ReplaceObjectRest(wstring const& src, Usage& usage, bool& changed) {
     index = cursor > index ? cursor : index + 1;
   }
   return ApplyEdits(src, edits);
-}
-
-void BuildRestParts(wstring const& src, vector<Tok> const& tokens, size_t open,
-                    size_t close, size_t restIndex, wstring& restless) {
-  int depth = 0;
-  size_t partStart = open + 1;
-  bool first = true;
-  for (size_t index = open + 1; index < close; ++index) {
-    if (IsOpen(src, tokens[index])) {
-      ++depth;
-    } else if (IsClose(src, tokens[index])) {
-      --depth;
-    } else if (depth == 0 &&
-               (IsPunct(src, tokens[index], L",") || index == restIndex)) {
-      if (index == restIndex) {
-        break;
-      }
-      if (index > partStart) {
-        if (!first) {
-          restless += L", ";
-        }
-        restless += src.substr(tokens[partStart].begin,
-                               tokens[index].begin - tokens[partStart].begin);
-        first = false;
-      }
-      partStart = index + 1;
-    }
-  }
 }
 
 wstring ReplaceParamRest(wstring const& src, Usage& usage, bool& changed) {
@@ -1545,69 +2043,47 @@ wstring ReplaceParamRest(wstring const& src, Usage& usage, bool& changed) {
       parts.push_back({partStart, close});
     }
 
-    wstring body;
+    wstring chain;
     bool found = false;
     for (auto const& part : parts) {
       if (part.first >= part.second ||
-          !IsPunct(src, tokens[part.first], L"{")) {
+          !(IsPunct(src, tokens[part.first], L"{") ||
+            IsPunct(src, tokens[part.first], L"["))) {
         continue;
       }
-      const size_t braceClose = FindMatchingForward(src, tokens, part.first);
-      if (braceClose >= part.second) {
+      const size_t patternClose =
+          FindMatchingForward(src, tokens, part.first);
+      if (patternClose >= part.second) {
         continue;
       }
-      size_t rest = wstring::npos;
-      depth = 0;
-      for (size_t scan = part.first + 1; scan < braceClose; ++scan) {
-        if (IsOpen(src, tokens[scan])) {
-          ++depth;
-        } else if (IsClose(src, tokens[scan])) {
-          --depth;
-        } else if (depth == 0 && IsPunct(src, tokens[scan], L"...")) {
-          rest = scan;
-          break;
-        }
-      }
-      if (rest == wstring::npos || rest + 1 >= braceClose ||
-          tokens[rest + 1].kind != TK::Ident) {
+      if (!PatternContainsRest(src, tokens, part.first, patternClose)) {
         continue;
       }
-      const wstring restName = Text(src, tokens[rest + 1]);
-      const wstring keys = PatternKeys(src, tokens, part.first, braceClose);
-      wstring restless;
-      BuildRestParts(src, tokens, part.first, braceClose, rest, restless);
-      const wstring temp = L"__em_rest_" + std::to_wstring(usage.counter++);
-
-      wstring defaultText;
-      size_t replaceEnd = tokens[part.second - 1].end;
-      if (braceClose + 1 < part.second &&
-          IsPunct(src, tokens[braceClose + 1], L"=")) {
-        const size_t valueStart = braceClose + 2;
-        if (valueStart < part.second) {
-          defaultText = src.substr(
-              tokens[valueStart].begin,
-              tokens[part.second - 1].end - tokens[valueStart].begin);
-          defaultText = L" = " + defaultText;
-        }
+      const wstring temp =
+          L"__em_rest_" + std::to_wstring(usage.counter++);
+      PatternPlan root = MakePatternPlan(src, tokens, temp, part.first,
+                                         patternClose, usage);
+      RestPlanSet set = MakePlanSet(src, tokens, root, usage);
+      if (!chain.empty()) {
+        chain += L", ";
       }
-      edits.push_back({tokens[part.first].begin, replaceEnd,
-                       temp + defaultText});
-      if (!restless.empty()) {
-        body += L"var {" + restless + L"} = " + temp + L", ";
-      } else {
-        body += L"var ";
-      }
-      body += restName + L" = " + wstring(kRestHelper) + L"(" + temp +
-              L", [" + keys + L"]);";
-      usage.rest = true;
+      chain += BuildDeclaratorChain(set.plans);
+      edits.push_back({tokens[part.first].begin, tokens[patternClose].end,
+                       temp});
       found = true;
     }
     if (!found) {
       ++index;
       continue;
     }
+    const wstring body = L"var " + chain + L";";
     if (bodyOpen != wstring::npos) {
-      edits.push_back({tokens[bodyOpen].end, tokens[bodyOpen].end, body});
+      const size_t bodyClose =
+          FindMatchingForward(src, tokens, bodyOpen);
+      const size_t insert = DirectiveInsertOffset(
+          src, tokens, bodyOpen,
+          bodyClose > bodyOpen ? bodyClose : tokens.size());
+      edits.push_back({insert, insert, L";" + body});
     } else {
       const wstring expression =
           src.substr(tokens[bodyStart].begin,
@@ -2156,14 +2632,26 @@ wstring InjectHelpers(wstring const& src, Usage const& usage) {
   }
   if (usage.spread) {
     helpers += wstring(L"var ") + kSpreadHelper +
-               L"=function(t){for(var i=1;i<arguments.length;i++){var s="
-               L"arguments[i];if(s!=null)for(var p in s)if(Object.prototype."
-               L"hasOwnProperty.call(s,p))t[p]=s[p];}return t;};";
+               L"=function(t){var d=function(o,p,v){Object.defineProperty(o,p,"
+               L"{value:v,enumerable:true,writable:true,configurable:true});};"
+               L"for(var i=1;i<arguments.length;i++){var s=arguments[i];"
+               L"if(s!=null){var ks=Object.keys(s);for(var j=0;j<ks.length;j++)"
+               L"d(t,ks[j],s[ks[j]]);if(Object.getOwnPropertySymbols){var sy="
+               L"Object.getOwnPropertySymbols(s);for(var m=0;m<sy.length;m++){"
+               L"var y=sy[m];if(Object.prototype.propertyIsEnumerable.call(s,y))"
+               L"d(t,y,s[y]);}}}}return t;};";
   }
   if (usage.rest) {
     helpers += wstring(L"var ") + kRestHelper +
-               L"=function(o,k){var t={};if(o!=null)for(var p in o)if(Object."
-               L"prototype.hasOwnProperty.call(o,p)&&k.indexOf(p)<0)t[p]=o[p];"
+               L"=function(o,k){var t={};if(o!=null){var n=[];for(var j=0;"
+               L"j<k.length;j++)n.push(typeof k[j]===\"symbol\"?k[j]:"
+               L"String(k[j]));var d=function(p,v){Object.defineProperty(t,p,"
+               L"{value:v,enumerable:true,writable:true,configurable:true});};"
+               L"var ks=Object.keys(o);for(var i=0;i<ks.length;i++){var p="
+               L"ks[i];if(n.indexOf(p)<0)d(p,o[p]);}if(Object."
+               L"getOwnPropertySymbols){var sy=Object.getOwnPropertySymbols(o);"
+               L"for(var m=0;m<sy.length;m++){var y=sy[m];if(n.indexOf(y)<0&&"
+               L"Object.prototype.propertyIsEnumerable.call(o,y))d(y,o[y]);}}}"
                L"return t;};";
   }
   if (usage.privateIn) {
@@ -2176,18 +2664,7 @@ wstring InjectHelpers(wstring const& src, Usage const& usage) {
   }
 
   vector<Tok> tokens = Tokenize(src);
-  size_t insert = 0;
-  size_t index = 0;
-  while (index < tokens.size() && tokens[index].kind == TK::String) {
-    insert = tokens[index].end;
-    if (index + 1 < tokens.size() && IsPunct(src, tokens[index + 1], L";")) {
-      insert = tokens[index + 1].end;
-      index += 2;
-    } else {
-      ++index;
-      break;
-    }
-  }
+  const size_t insert = TopLevelDirectiveInsert(src, tokens);
   wstring output = src.substr(0, insert);
   if (insert != 0) {
     output += L"\n";
@@ -2204,7 +2681,9 @@ wstring TranspileInner(wstring const& source, Usage& usage) {
     bool changed = false;
     wstring next = ReplaceParamRest(output, usage, changed);
     next = ReplaceClassFields(next, usage, changed);
+    next = ReplaceForOfRest(next, usage, changed);
     next = ReplaceObjectRest(next, usage, changed);
+    next = ReplaceRestAssignments(next, usage, changed);
     next = ReplaceObjectSpread(next, usage, changed);
     next = ReplaceOptional(next, usage, changed);
     next = ReplaceNullish(next, usage, changed);

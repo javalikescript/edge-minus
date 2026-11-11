@@ -65,6 +65,8 @@
     <ClInclude Include="pch.h" />
     <ClInclude Include="ContentAdapter.h" />
     <ClInclude Include="Extensions.h" />
+    <ClInclude Include="JsTranspiler.h" />
+    <ClInclude Include="JsTranspiler.inc" />
     <ClInclude Include="Log.h" />
     <ClInclude Include="MainPage.h" />
     <ClInclude Include="third_party\miniz\miniz.h" />
@@ -77,6 +79,7 @@
     <ClCompile Include="App.cpp" />
     <ClCompile Include="ContentAdapter.cpp" />
     <ClCompile Include="Extensions.cpp" />
+    <ClCompile Include="JsTranspiler.cpp" />
     <ClCompile Include="Log.cpp" />
     <ClCompile Include="MainPage.cpp" />
     <ClCompile Include="third_party\miniz\miniz.c">

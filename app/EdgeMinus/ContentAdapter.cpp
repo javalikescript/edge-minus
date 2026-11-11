@@ -5,6 +5,7 @@
 #include <cstring>
 #include <vector>
 
+#include "JsTranspiler.h"
 #include "Log.h"
 
 using namespace winrt;
@@ -134,6 +135,94 @@ bool IsTargetAttribute(std::wstring const& tag, std::wstring const& attribute) {
     return true;
   }
   return tag == L"use" && attribute == L"xlink:href";
+}
+
+std::wstring GetAttribute(std::wstring const& tag, std::wstring const& name) {
+  size_t index = 1;
+  while (index < tag.size() && IsNameChar(tag[index])) {
+    ++index;
+  }
+  while (index < tag.size()) {
+    while (index < tag.size() && IsSpace(tag[index])) {
+      ++index;
+    }
+    if (index >= tag.size() || tag[index] == L'>') {
+      break;
+    }
+    if (tag[index] == L'/' && index + 1 < tag.size() &&
+        tag[index + 1] == L'>') {
+      break;
+    }
+    const size_t nameStart = index;
+    while (index < tag.size() && !IsSpace(tag[index]) && tag[index] != L'=' &&
+           tag[index] != L'>' && tag[index] != L'/') {
+      ++index;
+    }
+    if (index == nameStart) {
+      ++index;
+      continue;
+    }
+    const std::wstring attribute =
+        Lower(tag.substr(nameStart, index - nameStart));
+    while (index < tag.size() && IsSpace(tag[index])) {
+      ++index;
+    }
+    if (index >= tag.size() || tag[index] != L'=') {
+      continue;
+    }
+    ++index;
+    while (index < tag.size() && IsSpace(tag[index])) {
+      ++index;
+    }
+    if (index >= tag.size()) {
+      break;
+    }
+    wchar_t quote = 0;
+    size_t valueStart = index;
+    size_t valueEnd = index;
+    if (tag[index] == L'"' || tag[index] == L'\'') {
+      quote = tag[index];
+      valueStart = index + 1;
+      valueEnd = tag.find(quote, valueStart);
+      if (valueEnd == std::wstring::npos) {
+        valueEnd = tag.size();
+        index = tag.size();
+      } else {
+        index = valueEnd + 1;
+      }
+    } else {
+      while (index < tag.size() && !IsSpace(tag[index]) &&
+             tag[index] != L'>') {
+        ++index;
+      }
+      valueEnd = index;
+    }
+    if (attribute == name) {
+      return tag.substr(valueStart, valueEnd - valueStart);
+    }
+  }
+  return {};
+}
+
+bool IsJavaScriptMediaType(std::wstring const& mediaType) {
+  return mediaType == L"text/javascript" ||
+         mediaType == L"application/javascript" ||
+         mediaType == L"application/x-javascript" ||
+         mediaType == L"text/ecmascript" ||
+         mediaType == L"application/ecmascript" ||
+         mediaType == L"text/jscript" || mediaType == L"text/x-javascript";
+}
+
+bool ScriptTypeIsJavaScript(std::wstring const& tag) {
+  std::wstring type = Lower(Trim(GetAttribute(tag, L"type")));
+  if (type.empty()) {
+    return true;
+  }
+  const size_t semicolon = type.find(L';');
+  if (semicolon != std::wstring::npos) {
+    type = Trim(type.substr(0, semicolon));
+  }
+  return IsJavaScriptMediaType(type) || type == L"module";
 }
 
 std::wstring AdaptReference(std::wstring const& value,
@@ -420,6 +509,16 @@ std::vector<uint8_t> EncodeUtf8(std::wstring const& text, bool withBom) {
   return bytes;
 }
 
+IAsyncOperation<IInputStream> StreamFromBytes(std::vector<uint8_t> bytes) {
+  InMemoryRandomAccessStream memory;
+  DataWriter writer(memory);
+  writer.WriteBytes(bytes);
+  co_await writer.StoreAsync();
+  writer.DetachStream();
+  memory.Seek(0);
+  co_return memory.GetInputStreamAt(0);
+}
+
 }  // namespace
 
 std::wstring LocalPathFromUri(Uri const& uri) {
@@ -585,7 +684,14 @@ std::wstring AdaptHtml(std::wstring const& html,
         output.append(html, index, length - index);
         break;
       }
-      output.append(html, index, closeEnd + 1 - index);
+      const std::wstring body = html.substr(index, closeStart - index);
+      if (name == L"script" && ScriptTypeIsJavaScript(tag) &&
+          LooksLikeModernScript(body)) {
+        output += TranspileJavaScript(body);
+      } else {
+        output += body;
+      }
+      output.append(html, closeStart, closeEnd + 1 - closeStart);
       index = closeEnd + 1;
     }
   }
@@ -631,7 +737,7 @@ IAsyncOperation<IInputStream> StreamResolver::UriToStreamAsync(
   } catch (...) {
   }
 
-  if (mediaType != L"text/html") {
+  if (mediaType != L"text/html" && !IsJavaScriptMediaType(mediaType)) {
     co_return co_await response.Content().ReadAsInputStreamAsync();
   }
 
@@ -648,17 +754,17 @@ IAsyncOperation<IInputStream> StreamResolver::UriToStreamAsync(
   } catch (...) {
   }
 
+  if (mediaType != L"text/html") {
+    std::wstring script = DecodeHtml(bytes, charset);
+    if (LooksLikeModernScript(script)) {
+      script = TranspileJavaScript(script);
+    }
+    co_return co_await StreamFromBytes(EncodeUtf8(script, true));
+  }
+
   const std::wstring html = DecodeHtml(bytes, charset);
   const std::wstring adapted = AdaptHtml(html, documentUrl);
-  const std::vector<uint8_t> encoded = EncodeUtf8(adapted, true);
-
-  InMemoryRandomAccessStream memory;
-  DataWriter writer(memory);
-  writer.WriteBytes(encoded);
-  co_await writer.StoreAsync();
-  writer.DetachStream();
-  memory.Seek(0);
-  co_return memory.GetInputStreamAt(0);
+  co_return co_await StreamFromBytes(EncodeUtf8(adapted, true));
 }
 
 }  // namespace edgeminus::content

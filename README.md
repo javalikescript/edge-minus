@@ -8,17 +8,17 @@ so it runs without bundling a browser engine and installs as a normal ARM UWP pa
 
 - User agent override
 - Search URL customization
-- Pin to start
-- Log file
+- Pin to start the current page
 - Userscript or HTML extensions
 - Best effort page adaption
+- Log file to troubleshoot errors
 
 ## Extensions
 
 The app allows adding extensions by selecting a file.
 
-- a Javascript file is install as a userscript extension and loaded on each page.
-- an HTML file is install as a local app that can be access through the browser.
+- a Javascript file is installed as a userscript extension and loaded on each page.
+- an HTML file is installed as a local app that can be access through the browser.
 - a Zip file is deployed as it is, it should contain at least a `userscript.js` or `index.html` file.
 
 ## Build target

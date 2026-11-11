@@ -198,9 +198,7 @@ constexpr double kLongScriptThresholdMs = 5000.0;
 
 std::wstring LoadSetting(std::wstring_view key) {
   try {
-    auto values = winrt::Windows::Storage::ApplicationData::Current()
-                      .LocalSettings()
-                      .Values();
+    auto values = winrt::Windows::Storage::ApplicationData::Current().LocalSettings().Values();
     auto value = values.TryLookup(winrt::hstring(key));
     if (value) {
       return std::wstring(winrt::unbox_value<winrt::hstring>(value).c_str());
@@ -212,17 +210,22 @@ std::wstring LoadSetting(std::wstring_view key) {
 
 void StoreSetting(std::wstring_view key, std::wstring const& value) {
   try {
-    auto values = winrt::Windows::Storage::ApplicationData::Current()
-                      .LocalSettings()
-                      .Values();
+    auto values = winrt::Windows::Storage::ApplicationData::Current().LocalSettings().Values();
     if (value.empty()) {
       values.Remove(winrt::hstring(key));
     } else {
-      values.Insert(winrt::hstring(key),
-                    winrt::box_value(winrt::hstring(value)));
+      values.Insert(winrt::hstring(key), winrt::box_value(winrt::hstring(value)));
     }
   } catch (...) {
   }
+}
+
+bool LoadBooleanSetting(std::wstring_view key) {
+  return LoadSetting(key) == L"1";
+}
+
+void StoreBooleanSetting(std::wstring_view key, bool value) {
+  StoreSetting(key, value ? std::wstring(L"1") : std::wstring());
 }
 
 void SetCheckBoxChecked(CheckBox const& box, bool checked) {
@@ -250,13 +253,13 @@ void SetDefaultUserAgent(std::wstring const& userAgent) {
     return;
   }
 
-  const int wideLength = static_cast<int>(userAgent.size());
+    const int wideLength = static_cast<int>(userAgent.size());
   const int byteLength = WideCharToMultiByte(CP_ACP, 0, userAgent.c_str(),
                                              wideLength, nullptr, 0, nullptr,
                                              nullptr);
   if (byteLength <= 0) {
-    return;
-  }
+      return;
+    }
 
   std::string narrow(static_cast<size_t>(byteLength), '\0');
   WideCharToMultiByte(CP_ACP, 0, userAgent.c_str(), wideLength, &narrow[0],
@@ -1370,13 +1373,10 @@ void MainPage::ShowSettings() {
   }
   homeBox_.Text(winrt::hstring(home));
   std::wstring userAgent = LoadSetting(kUserAgentKey);
-  if (userAgent.empty()) {
-    userAgent = kDefaulUserAgent;
-  }
   userAgentBox_.Text(winrt::hstring(userAgent));
   std::wstring updateUrl = LoadSetting(kUpdateUrlKey);
   updateUrlBox_.Text(winrt::hstring(updateUrl));
-  const bool logsEnabled = LoadSetting(log::kEnabledSettingKey) == L"1";
+  const bool logsEnabled = LoadBooleanSetting(log::kEnabledSettingKey);
   SetCheckBoxChecked(logsCheckBox_, logsEnabled);
   logsButton_.IsEnabled(logsEnabled);
   RefreshExtensionsList();
@@ -1432,13 +1432,11 @@ void MainPage::SaveSettings() {
   const bool logsEnabled = IsCheckBoxChecked(logsCheckBox_);
   const bool defaultSearch = search.empty() || search == kDefaultSearchUrl;
   const bool defaultHome = home.empty() || home == kDefaultHomeUrl;
-  const bool defaultUserAgent = userAgent.empty() || userAgent == kDefaulUserAgent;
   StoreSetting(kSearchUrlKey, defaultSearch ? std::wstring() : search);
   StoreSetting(kHomeUrlKey, defaultHome ? std::wstring() : home);
-  StoreSetting(kUserAgentKey, defaultUserAgent ? std::wstring() : userAgent);
+  StoreSetting(kUserAgentKey, userAgent);
   StoreSetting(kUpdateUrlKey, updateUrl);
-  StoreSetting(log::kEnabledSettingKey,
-               logsEnabled ? std::wstring(L"1") : std::wstring());
+  StoreBooleanSetting(log::kEnabledSettingKey, logsEnabled);
   SetDefaultUserAgent(userAgent);
   log::SetEnabled(logsEnabled);
   logsButton_.IsEnabled(logsEnabled);
@@ -1702,8 +1700,7 @@ winrt::fire_and_forget MainPage::DownloadContentAsync(std::wstring url,
 }
 
 winrt::hstring MainPage::UserAgent() const {
-  const std::wstring userAgent = LoadSetting(kUserAgentKey);
-  return winrt::hstring(userAgent.empty() ? kDefaulUserAgent : userAgent);
+  return winrt::hstring(LoadSetting(kUserAgentKey));
 }
 
 void MainPage::RefreshExtensionsList() {

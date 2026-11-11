@@ -79,6 +79,97 @@ bool StartsWith(std::wstring const& text, std::wstring_view prefix) {
          _wcsnicmp(text.c_str(), prefix.data(), prefix.size()) == 0;
 }
 
+std::wstring ExtensionForMediaType(std::wstring mediaType) {
+  std::transform(mediaType.begin(), mediaType.end(), mediaType.begin(),
+                 [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
+  const size_t semicolon = mediaType.find(L';');
+  if (semicolon != std::wstring::npos) {
+    mediaType = mediaType.substr(0, semicolon);
+  }
+  mediaType = Trim(mediaType);
+  if (mediaType == L"application/pdf") return L".pdf";
+  if (mediaType == L"application/zip" ||
+      mediaType == L"application/x-zip-compressed") {
+    return L".zip";
+  }
+  if (mediaType == L"application/x-7z-compressed") return L".7z";
+  if (mediaType == L"application/x-rar-compressed") return L".rar";
+  if (mediaType == L"application/vnd.android.package-archive") return L".apk";
+  if (mediaType == L"application/x-msdownload" ||
+      mediaType == L"application/x-msdos-program") {
+    return L".exe";
+  }
+  if (mediaType == L"application/x-msi" ||
+      mediaType == L"application/x-ms-installer") {
+    return L".msi";
+  }
+  if (mediaType == L"application/msword") return L".doc";
+  if (mediaType ==
+      L"application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+    return L".docx";
+  }
+  if (mediaType == L"application/vnd.ms-excel") return L".xls";
+  if (mediaType ==
+      L"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") {
+    return L".xlsx";
+  }
+  if (mediaType == L"application/vnd.ms-powerpoint") return L".ppt";
+  if (mediaType ==
+      L"application/vnd.openxmlformats-officedocument.presentationml.presentation") {
+    return L".pptx";
+  }
+  if (mediaType == L"audio/mpeg") return L".mp3";
+  if (mediaType == L"audio/ogg") return L".ogg";
+  if (mediaType == L"audio/wav" || mediaType == L"audio/x-wav") return L".wav";
+  if (mediaType == L"video/mp4") return L".mp4";
+  if (mediaType == L"image/jpeg") return L".jpg";
+  if (mediaType == L"image/png") return L".png";
+  if (mediaType == L"image/gif") return L".gif";
+  if (mediaType == L"text/plain") return L".txt";
+  if (mediaType == L"application/json") return L".json";
+  return {};
+}
+
+std::wstring FileNameFromUri(Uri const& uri, std::wstring const& mediaType) {
+  const std::wstring path(uri.Path());
+  const size_t slash = path.find_last_of(L"/\\");
+  std::wstring name = slash == std::wstring::npos ? path : path.substr(slash + 1);
+  if (!name.empty()) {
+    try {
+      name = std::wstring(Uri::UnescapeComponent(winrt::hstring(name)));
+    } catch (...) {
+    }
+  }
+
+  const std::wstring invalid = L"<>:\"/\\|?*";
+  std::wstring sanitized;
+  sanitized.reserve(name.size());
+  for (wchar_t ch : name) {
+    if (ch < 0x20 || invalid.find(ch) != std::wstring::npos) {
+      sanitized += L'_';
+    } else {
+      sanitized += ch;
+    }
+  }
+  while (!sanitized.empty() &&
+         (sanitized.back() == L'.' || sanitized.back() == L' ')) {
+    sanitized.pop_back();
+  }
+  if (sanitized.empty()) {
+    sanitized = L"download";
+  }
+
+  if (sanitized.find(L'.') == std::wstring::npos) {
+    const winrt::hstring extension = uri.Extension();
+    if (!extension.empty()) {
+      sanitized += extension.c_str();
+    } else {
+      sanitized += ExtensionForMediaType(mediaType);
+    }
+  }
+  return sanitized;
+}
+
 std::wstring PermissionName(WebViewPermissionType type) {
   switch (type) {
     case WebViewPermissionType::Geolocation:
@@ -1006,13 +1097,10 @@ void MainPage::WireEvents() {
           target = uri.AbsoluteUri();
         }
         log::Write(L"main: unviewable content " + mediaType + L" " + target);
-        /*
-        statusText_.Text(L"This content can't be displayed in the browser.");
-        statusText_.Visibility(Visibility::Visible);
+        progress_.Visibility(Visibility::Collapsed);
         if (uri) {
-          LaunchExternal(uri);
+          DownloadContentAsync(target, mediaType);
         }
-        */
       });
 
   if (ApiInformation::IsEventPresent(L"Windows.UI.Xaml.Controls.WebView", L"NewWindowRequested")) {
@@ -1547,6 +1635,68 @@ winrt::fire_and_forget MainPage::CheckForUpdates(std::wstring url) {
   } catch (winrt::hresult_error const& error) {
     log::Write(L"update: launch failed " + std::wstring(error.message()));
     statusText_.Text(L"Could not open App Installer.");
+    statusText_.Visibility(Visibility::Visible);
+  }
+}
+
+winrt::fire_and_forget MainPage::DownloadContentAsync(std::wstring url,
+                                                      std::wstring mediaType) {
+  using namespace winrt::Windows::Storage;
+  using namespace winrt::Windows::Web::Http;
+
+  try {
+    const Uri uri{winrt::hstring(url)};
+    const std::wstring scheme(uri.SchemeName());
+    if (_wcsicmp(scheme.c_str(), L"http") != 0 &&
+        _wcsicmp(scheme.c_str(), L"https") != 0) {
+      co_return;
+    }
+
+    const std::wstring name = FileNameFromUri(uri, mediaType);
+
+    ContentDialog dialog;
+    dialog.Title(winrt::box_value(winrt::hstring(L"Download content")));
+    dialog.Content(winrt::box_value(winrt::hstring(
+        L"This content can't be displayed in the browser.\n\nDownload \"" +
+        name + L"\"?")));
+    dialog.PrimaryButtonText(L"Download");
+    dialog.CloseButtonText(L"Cancel");
+    dialog.DefaultButton(ContentDialogButton::Primary);
+    const ContentDialogResult result = co_await dialog.ShowAsync();
+    if (result != ContentDialogResult::Primary) {
+      co_return;
+    }
+
+    statusText_.Text(L"Downloading\u2026");
+    statusText_.Visibility(Visibility::Visible);
+    log::Write(L"main: downloading " + url);
+
+    HttpClient client;
+    HttpRequestMessage request(HttpMethod::Get(), uri);
+    const auto response = co_await client.SendRequestAsync(request);
+    if (!response.IsSuccessStatusCode()) {
+      log::Write(L"main: download failed status " +
+                 std::to_wstring(static_cast<int>(response.StatusCode())));
+      statusText_.Text(L"Download failed");
+      co_return;
+    }
+
+    const auto buffer = co_await response.Content().ReadAsBufferAsync();
+    const StorageFile file = co_await DownloadsFolder::CreateFileAsync(
+        winrt::hstring(name), CreationCollisionOption::GenerateUniqueName);
+    co_await FileIO::WriteBufferAsync(file, buffer);
+
+    const std::wstring saved(file.Name().c_str());
+    log::Write(L"main: downloaded to " + saved);
+    statusText_.Text(L"Saved " + saved + L" to Downloads");
+    statusText_.Visibility(Visibility::Visible);
+  } catch (winrt::hresult_error const& error) {
+    log::Write(L"main: download failed " + std::wstring(error.message()));
+    statusText_.Text(L"Download failed");
+    statusText_.Visibility(Visibility::Visible);
+  } catch (...) {
+    log::Write(L"main: download failed");
+    statusText_.Text(L"Download failed");
     statusText_.Visibility(Visibility::Visible);
   }
 }

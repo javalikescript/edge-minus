@@ -46,6 +46,8 @@ class MainPage {
                                              std::wstring display,
                                              std::wstring argumentsText);
   winrt::fire_and_forget CheckForUpdates(std::wstring url);
+  winrt::fire_and_forget DownloadContentAsync(std::wstring url,
+                                              std::wstring mediaType);
   bool HandleBack();
   void LaunchExternal(winrt::Windows::Foundation::Uri const& uri);
 

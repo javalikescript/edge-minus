@@ -35,6 +35,39 @@ jobs:
           Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -Directory -ErrorAction SilentlyContinue |
             Select-Object -ExpandProperty Name
 
+      - name: Prepare signing certificate
+        shell: pwsh
+        env:
+          SIGNING_CERTIFICATE: ${{ secrets.SIGNING_CERTIFICATE }}
+          SIGNING_PRIVATE_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
+        run: |
+          $certPem = $env:SIGNING_CERTIFICATE
+          $keyPem = $env:SIGNING_PRIVATE_KEY
+          if (-not $certPem -or -not $keyPem) {
+            Write-Host "Signing secrets are not available; build.ps1 will generate a temporary certificate."
+            return
+          }
+
+          New-Item -ItemType Directory -Force -Path "output" | Out-Null
+          $certPath = Join-Path $PWD "output\signing-cert.pem"
+          $keyPath = Join-Path $PWD "output\signing-key.pem"
+          [System.IO.File]::WriteAllText($certPath, $certPem)
+          [System.IO.File]::WriteAllText($keyPath, $keyPem)
+
+          $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::CreateFromPemFile($certPath, $keyPath)
+          $password = "edgeminus"
+          $pfx = Join-Path $PWD "app\EdgeMinus\EdgeMinus_TemporaryKey.pfx"
+          [System.IO.File]::WriteAllBytes($pfx, $cert.Export(
+            [System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx, $password))
+          Export-Certificate -Cert $cert -FilePath (Join-Path $PWD "output\EdgeMinus.cer") | Out-Null
+          Remove-Item $keyPath -Force
+
+          Write-Host "Signing certificate: $($cert.Subject)"
+          Write-Host "Thumbprint:          $($cert.Thumbprint)"
+          if ($cert.Subject -ne "CN=EdgeMinus") {
+            Write-Warning "Package.appxmanifest Publisher is CN=EdgeMinus; the certificate subject must match it."
+          }
+
       - name: Build and package ARM appx
         shell: cmd
         run: build.bat -Configuration Release -Platform ARM

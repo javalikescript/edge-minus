@@ -544,7 +544,7 @@ std::wstring LocalPathFromUri(Uri const& uri) {
   }
 
   std::wstring result =
-      scheme + L"-" + host + L"-" + std::to_wstring(port) + path;
+      scheme + L"_" + host + L"_" + std::to_wstring(port) + path;
   result += NormalizeQuery(std::wstring(uri.Query()));
   result += NormalizeFragment(std::wstring(uri.Fragment()));
   return result;
@@ -570,8 +570,8 @@ std::wstring RemoteUriFromLocalPath(std::wstring const& localPath) {
   const std::wstring path =
       slash == std::wstring::npos ? L"/" : encoded.substr(slash);
 
-  const size_t schemeEnd = authority.find(L'-');
-  const size_t portStart = authority.rfind(L'-');
+  const size_t schemeEnd = authority.find(L'_');
+  const size_t portStart = authority.rfind(L'_');
   if (schemeEnd == std::wstring::npos || portStart == std::wstring::npos ||
       portStart <= schemeEnd) {
     return {};

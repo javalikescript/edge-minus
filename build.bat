@@ -1,6 +1,8 @@
 @echo off
 setlocal
 
+REM build -Platform Win32 -Configuration Debug
+
 set "SCRIPT=%~dp0build.ps1"
 if not exist "%SCRIPT%" (
   echo build.ps1 was not found next to build.bat.

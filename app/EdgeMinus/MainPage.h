@@ -45,7 +45,6 @@ class MainPage {
   winrt::fire_and_forget PinCurrentPageAsync(std::wstring tileId,
                                              std::wstring display,
                                              std::wstring argumentsText);
-  winrt::fire_and_forget CheckForUpdates(std::wstring url);
   winrt::fire_and_forget DownloadContentAsync(std::wstring url,
                                               std::wstring mediaType);
   bool HandleBack();
@@ -57,8 +56,7 @@ class MainPage {
 
   static winrt::hstring HomeUrl();
   static bool IsInternalScheme(winrt::hstring const& scheme);
-  static winrt::hstring DescribeError(
-      winrt::Windows::Web::WebErrorStatus status);
+  static winrt::hstring DescribeError(winrt::Windows::Web::WebErrorStatus status);
 
   winrt::Windows::UI::Xaml::Controls::Grid root_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Grid contentHost_{nullptr};
@@ -79,7 +77,6 @@ class MainPage {
   winrt::Windows::UI::Xaml::Controls::TextBox searchBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBox homeBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::TextBox userAgentBox_{nullptr};
-  winrt::Windows::UI::Xaml::Controls::TextBox updateUrlBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::CheckBox logsCheckBox_{nullptr};
   winrt::Windows::UI::Xaml::Controls::StackPanel extensionsList_{nullptr};
   winrt::Windows::UI::Xaml::Controls::Border extensionsPanel_{nullptr};

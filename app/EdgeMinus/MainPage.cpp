@@ -13,7 +13,6 @@
 using namespace winrt;
 using namespace winrt::Windows::Foundation;
 using namespace winrt::Windows::Foundation::Metadata;
-using namespace winrt::Windows::Management::Deployment;
 using namespace winrt::Windows::System;
 using namespace winrt::Windows::UI;
 using namespace winrt::Windows::UI::Core;
@@ -190,7 +189,6 @@ std::wstring PermissionName(WebViewPermissionType type) {
 constexpr wchar_t kSearchUrlKey[] = L"searchUrl";
 constexpr wchar_t kUserAgentKey[] = L"userAgent";
 constexpr wchar_t kHomeUrlKey[] = L"homeUrl";
-constexpr wchar_t kUpdateUrlKey[] = L"updateUrl";
 constexpr wchar_t kDefaultSearchUrl[] = L"https://www.bing.com/search?q={query}";
 constexpr wchar_t kDefaultHomeUrl[] = L"about:blank";
 constexpr wchar_t kDefaulUserAgent[] = L"Mozilla/5.0 (Android 10.0; Mobile; rv:84.0) Gecko/20100101 Firefox/88.0";
@@ -586,31 +584,6 @@ void MainPage::BuildSettingsPanel() {
   uaHint.Margin(ThicknessHelper::FromLengths(0, 4, 0, 20));
   stack.Children().Append(uaHint);
 
-  auto updateLabel = TextBlock();
-  updateLabel.Text(L"Update URL");
-  updateLabel.FontSize(14);
-  updateLabel.Foreground(Brush(ChromeFg()));
-  updateLabel.Margin(ThicknessHelper::FromLengths(0, 0, 0, 4));
-  stack.Children().Append(updateLabel);
-
-  updateUrlBox_ = TextBox();
-  updateUrlBox_.FontSize(14);
-  updateUrlBox_.PlaceholderText(L"https://example.com/EdgeMinus.appinstaller");
-  updateUrlBox_.Padding(ThicknessHelper::FromLengths(8, 6, 8, 6));
-  updateUrlBox_.Background(Brush(ButtonBg()));
-  updateUrlBox_.Foreground(Brush(ChromeFg()));
-  updateUrlBox_.BorderBrush(Brush(Accent()));
-  updateUrlBox_.BorderThickness(ThicknessHelper::FromUniformLength(1));
-  stack.Children().Append(updateUrlBox_);
-
-  auto updateHint = TextBlock();
-  updateHint.Text(L"An .appinstaller URL used by Check for updates.");
-  updateHint.FontSize(11);
-  updateHint.Foreground(Brush(MutedFg()));
-  updateHint.TextWrapping(TextWrapping::Wrap);
-  updateHint.Margin(ThicknessHelper::FromLengths(0, 4, 0, 20));
-  stack.Children().Append(updateHint);
-
   logsCheckBox_ = CheckBox();
   logsCheckBox_.Content(winrt::box_value(winrt::hstring(L"Enable logging")));
   logsCheckBox_.FontSize(14);
@@ -628,10 +601,6 @@ void MainPage::BuildSettingsPanel() {
   logsHint.Margin(ThicknessHelper::FromLengths(0, 4, 0, 20));
   stack.Children().Append(logsHint);
 
-  auto tools = StackPanel();
-  tools.Orientation(Orientation::Horizontal);
-  tools.Margin(ThicknessHelper::FromLengths(0, 0, 0, 20));
-
   logsButton_ = Button();
   logsButton_.Content(winrt::box_value(winrt::hstring(L"View logs")));
   logsButton_.Background(Brush(ButtonBg()));
@@ -643,20 +612,7 @@ void MainPage::BuildSettingsPanel() {
   logsButton_.Click([this](IInspectable const&, RoutedEventArgs const&) {
     ShowLogs();
   });
-  tools.Children().Append(logsButton_);
-
-  auto updateButton = Button();
-  updateButton.Content(winrt::box_value(winrt::hstring(L"Check for updates")));
-  updateButton.Background(Brush(ButtonBg()));
-  updateButton.Foreground(Brush(ChromeFg()));
-  updateButton.BorderThickness(ThicknessHelper::FromUniformLength(0));
-  updateButton.Padding(ThicknessHelper::FromLengths(18, 8, 18, 8));
-  updateButton.Click([this](IInspectable const&, RoutedEventArgs const&) {
-    CheckForUpdates(Trim(std::wstring(updateUrlBox_.Text())));
-  });
-  tools.Children().Append(updateButton);
-
-  stack.Children().Append(tools);
+  stack.Children().Append(logsButton_);
 
   auto actions = StackPanel();
   actions.Orientation(Orientation::Horizontal);
@@ -884,6 +840,7 @@ void MainPage::WireEvents() {
 
   menu.Items().Append(MenuFlyoutSeparator());
 
+#if !defined(_M_ARM)
   auto adaptIcon = MakeGlyphIcon(L"\uE774");
   auto adaptItem = MenuFlyoutItem();
   adaptItem.Text(L"Adapt page");
@@ -894,6 +851,9 @@ void MainPage::WireEvents() {
   menu.Items().Append(adaptItem);
 
   menu.Items().Append(MenuFlyoutSeparator());
+#else
+#pragma message(" /!\\ No page adaption")
+#endif
 
   auto extensionsIcon = MakeGlyphIcon(L"\uE71D");
   auto extensionsItem = MenuFlyoutItem();
@@ -1374,8 +1334,6 @@ void MainPage::ShowSettings() {
   homeBox_.Text(winrt::hstring(home));
   std::wstring userAgent = LoadSetting(kUserAgentKey);
   userAgentBox_.Text(winrt::hstring(userAgent));
-  std::wstring updateUrl = LoadSetting(kUpdateUrlKey);
-  updateUrlBox_.Text(winrt::hstring(updateUrl));
   const bool logsEnabled = LoadBooleanSetting(log::kEnabledSettingKey);
   SetCheckBoxChecked(logsCheckBox_, logsEnabled);
   logsButton_.IsEnabled(logsEnabled);
@@ -1428,14 +1386,12 @@ void MainPage::SaveSettings() {
   const std::wstring search = Trim(std::wstring(searchBox_.Text()));
   const std::wstring home = Trim(std::wstring(homeBox_.Text()));
   const std::wstring userAgent = Trim(std::wstring(userAgentBox_.Text()));
-  const std::wstring updateUrl = Trim(std::wstring(updateUrlBox_.Text()));
   const bool logsEnabled = IsCheckBoxChecked(logsCheckBox_);
   const bool defaultSearch = search.empty() || search == kDefaultSearchUrl;
   const bool defaultHome = home.empty() || home == kDefaultHomeUrl;
   StoreSetting(kSearchUrlKey, defaultSearch ? std::wstring() : search);
   StoreSetting(kHomeUrlKey, defaultHome ? std::wstring() : home);
   StoreSetting(kUserAgentKey, userAgent);
-  StoreSetting(kUpdateUrlKey, updateUrl);
   StoreBooleanSetting(log::kEnabledSettingKey, logsEnabled);
   SetDefaultUserAgent(userAgent);
   log::SetEnabled(logsEnabled);
@@ -1594,46 +1550,6 @@ winrt::fire_and_forget MainPage::PinCurrentPageAsync(
   } catch (winrt::hresult_error const& error) {
     log::Write(L"main: pin failed " + std::wstring(error.message()));
     ShowError(L"Could not pin", L"This page could not be pinned to Start.");
-  }
-}
-
-winrt::fire_and_forget MainPage::CheckForUpdates(std::wstring url) {
-  if (url.empty()) {
-    log::Write(L"update: no update URL configured");
-    statusText_.Text(L"Set the update URL in Settings.");
-    statusText_.Visibility(Visibility::Visible);
-    ShowSettings();
-    co_return;
-  }
-  try {
-    const Uri target{winrt::hstring(url)};
-    const std::wstring scheme(target.SchemeName().c_str());
-    if (_wcsicmp(scheme.c_str(), L"http") != 0 && _wcsicmp(scheme.c_str(), L"https") != 0) {
-      log::Write(L"update: unsupported update URL " + url);
-      statusText_.Text(L"Update URL must be an http or https address.");
-      statusText_.Visibility(Visibility::Visible);
-      ShowSettings();
-      co_return;
-    }
-    PackageManager packageManager;
-    log::Write(L"update: installing " + url);
-    if (url.size() >= 5 && url.compare(url.size() - 5, 5, L".appx") == 0) {
-      co_await packageManager.AddPackageAsync(
-        target,
-        nullptr,
-        DeploymentOptions::ForceTargetApplicationShutdown
-      );
-    } else {
-      co_await packageManager.AddPackageByAppInstallerFileAsync(
-        target,
-        AddPackageByAppInstallerOptions::ForceTargetAppShutdown,
-        nullptr
-      );
-    }
-  } catch (winrt::hresult_error const& error) {
-    log::Write(L"update: launch failed " + std::wstring(error.message()));
-    statusText_.Text(L"Could not open App Installer.");
-    statusText_.Visibility(Visibility::Visible);
   }
 }
 

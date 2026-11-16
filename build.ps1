@@ -15,7 +15,7 @@ $outDir = Join-Path $root "output"
 $appxDir = Join-Path $outDir "appx"
 $pfx = Join-Path $projectDir "EdgeMinus_TemporaryKey.pfx"
 $pfxPassword = "edgeminus"
-$appVersion = "1.0.0.0"
+$appVersion = "1.1.0.0"
 
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 New-Item -ItemType Directory -Force -Path $appxDir | Out-Null
@@ -110,6 +110,7 @@ Write-Host "SDK:      $WindowsTargetPlatformVersion"
 Write-Host "Toolset:  $PlatformToolset"
 if ($VCToolsVersion) { Write-Host "VC Tools: $VCToolsVersion" }
 Write-Host "Target:   $Configuration|$Platform"
+Write-Host "Version:   $appVersion"
 
 if (-not (Test-Path $pfx)) {
   $cert = New-SelfSignedCertificate -Subject "CN=EdgeMinus" `

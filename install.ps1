@@ -3,7 +3,7 @@ param(
   [string]$Platform = "Win32"
 )
 
-$appVersion = "1.0.0.0"
+$appVersion = "1.1.0.0"
 
 $appxSuffix = switch ($Configuration) {
   "Debug" { "_Debug" }

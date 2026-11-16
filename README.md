@@ -92,7 +92,7 @@ Optional arguments:
 Package output:
 
 ```text
-output\appx\EdgeMinus_1.0.0.0_<Platform>.appx
+output\appx\EdgeMinus_1.1.0.0_<Platform>.appx
 ```
 
 ## Deploying to a phone
@@ -101,7 +101,7 @@ output\appx\EdgeMinus_1.0.0.0_<Platform>.appx
 2. Install `output\EdgeMinus.cer` into the phone's **Trusted People**
    certificate store. The package is signed with the matching self-signed
    certificate, so the phone will not install it otherwise.
-3. Sideload `output\appx\EdgeMinus_1.0.0.0_ARM.appx` with the Windows Device Portal or a deployment tool.
+3. Sideload `output\appx\EdgeMinus_1.1.0.0_ARM.appx` with the Windows Device Portal or a deployment tool.
 4. To use it as a browser, set EdgeMinus as the default browser in **Settings > System > Default apps > Web browser**.
 
 The certificate subject is `CN=EdgeMinus`, matching the manifest publisher.

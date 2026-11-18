@@ -88,7 +88,6 @@ class MainPage {
 
   winrt::hstring currentUrl_;
   bool extensionsLoadStarted_{false};
-  bool longScriptStopRequested_{false};
 };
 
 }  // namespace edgeminus

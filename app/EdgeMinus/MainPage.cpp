@@ -909,7 +909,6 @@ void MainPage::WireEvents() {
   web_.NavigationStarting([this](WebView const&, WebViewNavigationStartingEventArgs const& args) {
         HideError();
         progress_.Visibility(Visibility::Visible);
-        longScriptStopRequested_ = false;
         UpdateChrome();
 
         auto uri = args.Uri();
@@ -1020,21 +1019,15 @@ void MainPage::WireEvents() {
 
   web_.LongRunningScriptDetected([this](WebView const&, WebViewLongRunningScriptDetectedEventArgs const& args) {
         try {
-          if (longScriptStopRequested_) {
-            return;
-          }
           const double elapsedMs = std::chrono::duration<double, std::milli>(args.ExecutionTime()).count();
           if (elapsedMs < kLongScriptThresholdMs) {
             return;
           }
-          longScriptStopRequested_ = true;
-          log::Write(L"main: long running script " +
-                     std::to_wstring(static_cast<long long>(elapsedMs)) +
-                     L"ms, stopping");
+          log::Write(L"main: long running script " + std::to_wstring(static_cast<long long>(elapsedMs)) + L"ms, stopping");
           args.StopPageScriptExecution(true);
           log::Write(L"main: stopped long running script");
-        } catch (winrt::hresult_error const& error) {
-          log::Write(L"main: long running script failed " + std::wstring(error.message()));
+          statusText_.Text(L"A long running script has been stopped.");
+          statusText_.Visibility(Visibility::Visible);
         } catch (...) {
           log::Write(L"main: long running script failed");
         }

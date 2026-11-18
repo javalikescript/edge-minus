@@ -1006,15 +1006,7 @@ void MainPage::WireEvents() {
           request.Deny();
           return;
         }
-        const std::wstring host = request.Uri()
-                                      ? std::wstring(request.Uri().Host())
-                                      : std::wstring(L"This site");
-        const std::wstring message = host + L" wants to use " + PermissionName(request.PermissionType()) + L".";
-        log::Write(L"main: permission requested " + message);
-        try {
-          request.Deny();
-        } catch (...) {
-        }
+        AskPermissionAsync(request);
       });
 
   web_.LongRunningScriptDetected([this](WebView const&, WebViewLongRunningScriptDetectedEventArgs const& args) {
@@ -1543,6 +1535,31 @@ winrt::fire_and_forget MainPage::PinCurrentPageAsync(
   } catch (winrt::hresult_error const& error) {
     log::Write(L"main: pin failed " + std::wstring(error.message()));
     ShowError(L"Could not pin", L"This page could not be pinned to Start.");
+  }
+}
+
+winrt::fire_and_forget MainPage::AskPermissionAsync(WebViewPermissionRequest request) {
+  const std::wstring host = request.Uri() ? std::wstring(request.Uri().Host()) : std::wstring(L"This site");
+  const std::wstring message = host + L" wants to use " + PermissionName(request.PermissionType()) + L".";
+
+  log::Write(L"main: permission requested " + message);
+
+  ContentDialog dialog;
+  dialog.Title(winrt::box_value(winrt::hstring(L"Permission")));
+  dialog.Content(winrt::box_value(winrt::hstring(message)));
+  dialog.PrimaryButtonText(L"Grant");
+  dialog.CloseButtonText(L"Deny");
+  dialog.DefaultButton(ContentDialogButton::Primary);
+  const ContentDialogResult result = co_await dialog.ShowAsync();
+  try {
+    if (result == ContentDialogResult::Primary) {
+      log::Write(L"main: permission allowed");
+      request.Allow();
+    } else {
+      log::Write(L"main: permission denied");
+      request.Deny();
+    }
+  } catch (...) {
   }
 }
 

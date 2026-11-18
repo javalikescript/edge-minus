@@ -45,6 +45,7 @@ class MainPage {
   winrt::fire_and_forget PinCurrentPageAsync(std::wstring tileId,
                                              std::wstring display,
                                              std::wstring argumentsText);
+  winrt::fire_and_forget AskPermissionAsync(winrt::Windows::UI::Xaml::Controls::WebViewPermissionRequest request);
   winrt::fire_and_forget DownloadContentAsync(std::wstring url,
                                               std::wstring mediaType);
   bool HandleBack();
